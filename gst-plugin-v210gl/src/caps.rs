@@ -60,52 +60,83 @@ pub fn copy_video_fields(from: &gst::StructureRef, template: gst::Caps) -> gst::
     caps
 }
 
+fn field_contains_string(s: &gst::StructureRef, field: &str, needle: &str) -> bool {
+    if !s.has_field(field) {
+        return false;
+    }
+    if let Ok(v) = s.get::<&str>(field) {
+        return v == needle;
+    }
+    if let Ok(list) = s.get::<gst::List>(field) {
+        return list
+            .iter()
+            .any(|val| val.get::<&str>().ok() == Some(needle));
+    }
+    if let Ok(arr) = s.get::<gst::Array>(field) {
+        return arr.iter().any(|val| val.get::<&str>().ok() == Some(needle));
+    }
+    false
+}
+
+fn is_progressive(s: &gst::StructureRef) -> bool {
+    !s.has_field("interlace-mode") || field_contains_string(s, "interlace-mode", "progressive")
+}
+
 pub fn rewrite_v210_to_proxy(caps: &gst::Caps) -> Option<gst::Caps> {
-    let s = caps.structure(0)?;
-    if s.name() != "video/x-raw" {
-        return None;
-    }
-    if s.get::<&str>("format").ok()? != "v210" {
-        return None;
-    }
-    if let Ok(mode) = s.get::<&str>("interlace-mode") {
-        if mode != "progressive" {
-            return None;
+    let mut out = gst::Caps::new_empty();
+    for s in caps.iter() {
+        if s.name() != "video/x-raw" {
+            continue;
         }
+        if !field_contains_string(s, "format", "v210") {
+            continue;
+        }
+        if !is_progressive(s) {
+            continue;
+        }
+        let mut converted = copy_video_fields(s, rgb10a2_caps());
+        if let Some(st) = converted.make_mut().structure_mut(0) {
+            if let Ok(width) = s.get::<i32>("width") {
+                st.set("width", v210::proxy_width(width as u32) as i32);
+                st.set("original-width", width);
+            }
+            st.set("format", "RGB10A2_LE");
+            st.set("interlace-mode", "progressive");
+        }
+        out.make_mut().append(converted);
     }
-    let width = s.get::<i32>("width").ok()?;
-    let mut out = copy_video_fields(s, rgb10a2_caps());
-    if let Some(st) = out.make_mut().structure_mut(0) {
-        st.set("width", v210::proxy_width(width as u32) as i32);
-        st.set("format", "RGB10A2_LE");
-        st.set("interlace-mode", "progressive");
-        // Survives glupload more often than a GObject property set from a CAPS
-        // event (that event is too late for GLFilter::transform_internal_caps).
-        st.set("original-width", width);
-    }
-    Some(out)
+    (!out.is_empty()).then_some(out)
 }
 
 pub fn rewrite_proxy_to_v210(caps: &gst::Caps, original_width: Option<i32>) -> Option<gst::Caps> {
-    let s = caps.structure(0)?;
-    if s.name() != "video/x-raw" {
-        return None;
-    }
-    if s.get::<&str>("format").ok()? != "RGB10A2_LE" {
-        return None;
-    }
-    let width = original_width
-        .or_else(|| original_width_from_structure(s))
-        .unwrap_or_else(|| s.get::<i32>("width").unwrap_or(0));
-    let mut out = copy_video_fields(s, v210_caps());
-    if let Some(st) = out.make_mut().structure_mut(0) {
-        if width > 0 {
-            st.set("width", width);
+    let mut out = gst::Caps::new_empty();
+    for s in caps.iter() {
+        if s.name() != "video/x-raw" {
+            continue;
         }
-        st.set("format", "v210");
-        st.set("interlace-mode", "progressive");
+        if !field_contains_string(s, "format", "RGB10A2_LE") {
+            continue;
+        }
+        if !is_progressive(s) {
+            continue;
+        }
+        let width = original_width
+            .or_else(|| original_width_from_structure(s))
+            .or_else(|| s.get::<i32>("width").ok())
+            .unwrap_or(0);
+        let mut converted = copy_video_fields(s, v210_caps());
+        if let Some(st) = converted.make_mut().structure_mut(0) {
+            if width > 0 {
+                st.set("width", width);
+            } else {
+                st.remove_field("width");
+            }
+            st.set("format", "v210");
+            st.set("interlace-mode", "progressive");
+        }
+        out.make_mut().append(converted);
     }
-    Some(out)
+    (!out.is_empty()).then_some(out)
 }
 
 pub fn original_width_from_caps(caps: &gst::Caps) -> Option<i32> {
@@ -179,5 +210,23 @@ mod tests {
         let s = out.structure(0).unwrap();
         assert_eq!(s.get::<&str>("format").unwrap(), "v210");
         assert_eq!(s.get::<i32>("width").unwrap(), 1920);
+    }
+
+    #[test]
+    fn proxy_rewrite_skips_leading_dmabuf_structure() {
+        let _ = gst::init();
+        let mut caps = gst::Caps::builder("video/x-raw")
+            .field("format", "DMA_DRM")
+            .build();
+        caps.make_mut().append(
+            gst::Caps::builder("video/x-raw")
+                .field("format", gst::List::new(["RGBA", "RGB10A2_LE", "NV12"]))
+                .build(),
+        );
+        let out = rewrite_proxy_to_v210(&caps, None).expect("RGB10A2 structure should match");
+        assert_eq!(
+            out.structure(0).unwrap().get::<&str>("format").unwrap(),
+            "v210"
+        );
     }
 }

@@ -13,6 +13,9 @@ Code is the source of truth — this may have drifted; read the code for the cur
 3. A domain directory on tmpfs, typically `/dev/shm/mxl`
 4. For the GPU path: NVIDIA Container Toolkit and `--gpus all` (see [DOCKER_GPU_SETUP.md](../../../docs/DOCKER_GPU_SETUP.md))
 
+The GPU element unit test is opt-in (`STROM_V210GL_GPU_TEST=1`) because an RGB10A2
+`glupload` can abort on software GL stacks.
+
 ## Host install
 
 ```bash

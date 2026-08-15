@@ -6,7 +6,6 @@ use gstreamer::prelude::*;
 use gstreamer::subclass::prelude::*;
 use std::sync::{Arc, OnceLock};
 
-use crate::caps;
 use crate::color;
 use crate::properties::{self, ColorSettings};
 
@@ -69,28 +68,6 @@ impl ElementImpl for V210GlUpload {
             )
         }))
     }
-
-    fn pad_templates() -> &'static [gst::PadTemplate] {
-        static TEMPLATES: OnceLock<Vec<gst::PadTemplate>> = OnceLock::new();
-        TEMPLATES.get_or_init(|| {
-            vec![
-                gst::PadTemplate::new(
-                    "sink",
-                    gst::PadDirection::Sink,
-                    gst::PadPresence::Always,
-                    &caps::v210_caps(),
-                )
-                .unwrap(),
-                gst::PadTemplate::new(
-                    "src",
-                    gst::PadDirection::Src,
-                    gst::PadPresence::Always,
-                    &caps::rgba_gl_caps(),
-                )
-                .unwrap(),
-            ]
-        })
-    }
 }
 
 impl BinImpl for V210GlUpload {}
@@ -132,16 +109,16 @@ fn build_upload_bin(
     let src_pad = unpack
         .static_pad("src")
         .ok_or_else(|| "unpack src pad missing".to_string())?;
-    let sink_templ = bin
-        .pad_template("sink")
-        .ok_or_else(|| "sink pad template missing".to_string())?;
-    let src_templ = bin
-        .pad_template("src")
-        .ok_or_else(|| "src pad template missing".to_string())?;
-    let ghost_sink = gst::GhostPad::from_template_with_target(&sink_templ, &sink_pad)
-        .map_err(|e| format!("ghost sink: {e}"))?;
-    let ghost_src = gst::GhostPad::from_template_with_target(&src_templ, &src_pad)
-        .map_err(|e| format!("ghost src: {e}"))?;
+    // Do not put Always pad templates on this bin — they clash with ghost pads
+    // and leave the element with no sink/src (GStreamer then warns at dispose).
+    let ghost_sink = gst::GhostPad::builder_with_target(&sink_pad)
+        .map_err(|e| format!("ghost sink: {e}"))?
+        .name("sink")
+        .build();
+    let ghost_src = gst::GhostPad::builder_with_target(&src_pad)
+        .map_err(|e| format!("ghost src: {e}"))?
+        .name("src")
+        .build();
     ghost_sink.set_active(true).ok();
     ghost_src.set_active(true).ok();
     bin.add_pad(&ghost_sink)
