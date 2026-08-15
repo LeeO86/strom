@@ -102,13 +102,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy on backend
-        run: cargo clippy --package strom --all-targets --features efp,nvidia -- -D warnings
+        run: cargo clippy --package strom --package gst-plugin-v210gl --all-targets --features efp,mxl,nvidia -- -D warnings
 
       - name: Run Clippy on MCP server
         run: cargo clippy --package strom-mcp-server --all-targets -- -D warnings
 
       - name: Run tests on backend
-        run: cargo test --package strom --features efp,nvidia
+        run: cargo test --package strom --package gst-plugin-v210gl --features efp,mxl,nvidia
 
       - name: Run tests on MCP server
         run: cargo test --package strom-mcp-server
@@ -295,7 +295,7 @@ jobs:
         env:
           RUSTFLAGS: "-L /usr/lib/x86_64-linux-gnu"
         run: |
-          cargo zigbuild --release --package strom --features efp --target x86_64-unknown-linux-gnu.2.31
+          cargo zigbuild --release --package strom --features efp,mxl --target x86_64-unknown-linux-gnu.2.31
           cargo zigbuild --release --package strom-mcp-server --target x86_64-unknown-linux-gnu.2.31
 
       - name: Upload backend binary
@@ -405,7 +405,7 @@ jobs:
         env:
           RUSTFLAGS: "-L /usr/lib/aarch64-linux-gnu"
         run: |
-          cargo zigbuild --release --package strom --features efp --target aarch64-unknown-linux-gnu.2.31
+          cargo zigbuild --release --package strom --features efp,mxl --target aarch64-unknown-linux-gnu.2.31
           cargo zigbuild --release --package strom-mcp-server --target aarch64-unknown-linux-gnu.2.31
 
       - name: Upload backend binary
@@ -558,17 +558,17 @@ jobs:
 
       - name: Run Clippy
         run: |
-          cargo clippy --package strom --features efp,nvidia -- -D warnings
+          cargo clippy --package strom --package gst-plugin-v210gl --features efp,mxl,nvidia -- -D warnings
           cargo clippy --package strom-mcp-server -- -D warnings
 
       - name: Run tests
         run: |
-          cargo test --package strom --features efp,nvidia
+          cargo test --package strom --package gst-plugin-v210gl --features efp,mxl,nvidia
           cargo test --package strom-mcp-server
 
       - name: Build
         run: |
-          cargo build --release --package strom --features efp
+          cargo build --release --package strom --features efp,mxl
           cargo build --release --package strom-mcp-server
 
       - name: Upload backend binary

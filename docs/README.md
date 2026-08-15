@@ -35,6 +35,7 @@ Ready-to-run scripts for preparing a host, under [`scripts/setup/`](../scripts/s
 [nvidia](../scripts/setup/nvidia/README.md) ·
 [decklink](../scripts/setup/decklink/README.md) ·
 [ndi](../scripts/setup/ndi/README.md) ·
+[mxl](../scripts/setup/mxl/README.md) ·
 [ntp](../scripts/setup/ntp/README.md).
 
 ## Contributing & building

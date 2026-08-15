@@ -38,7 +38,8 @@ Yes — ready-to-run host setup scripts live in
 [`scripts/setup/`](../scripts/setup), each with its own README:
 [`nvidia/`](../scripts/setup/nvidia/README.md) (driver + container toolkit),
 [`decklink/`](../scripts/setup/decklink/README.md) (Blackmagic SDI/HDMI),
-[`ndi/`](../scripts/setup/ndi/README.md) (NewTek NDI SDK + plugin), and
+[`ndi/`](../scripts/setup/ndi/README.md) (NewTek NDI SDK + plugin),
+[`mxl/`](../scripts/setup/mxl/README.md) (MXL SDK + gstmxl plugin), and
 [`ntp/`](../scripts/setup/ntp/README.md) (chrony for clock sync). They are also bundled
 inside the Docker images at `/app/scripts/setup/`, so you don't have to clone the repo —
 see [OPEN_LIVE_SETUP.md](OPEN_LIVE_SETUP.md) for how to extract them.

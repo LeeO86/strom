@@ -74,6 +74,7 @@ ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG BUILDARCH
 ARG TARGETARCH
+ARG STROM_FEATURES=no-gui,efp,mxl
 
 # Install Rust and base dependencies
 ENV DEBIAN_FRONTEND=noninteractive
@@ -218,7 +219,7 @@ RUN --mount=type=secret,id=aws_access_key_id \
     export CMAKE_C_FLAGS="-std=gnu17" && \
     export CMAKE_CXX_FLAGS="-std=gnu++17" && \
     export RUSTFLAGS="-L /usr/lib/aarch64-linux-gnu" && \
-    cargo zigbuild --release --package strom --no-default-features --features no-gui,efp --target aarch64-unknown-linux-gnu.2.36 && \
+    cargo zigbuild --release --package strom --no-default-features --features ${STROM_FEATURES} --target aarch64-unknown-linux-gnu.2.36 && \
     cargo zigbuild --release --package strom-mcp-server --target aarch64-unknown-linux-gnu.2.36 && \
     # Move binaries to expected location (cargo-zigbuild puts them in target/aarch64-unknown-linux-gnu/release)
     mkdir -p target/release && \
@@ -226,7 +227,7 @@ RUN --mount=type=secret,id=aws_access_key_id \
     cp target/aarch64-unknown-linux-gnu/release/strom-mcp-server target/release/strom-mcp-server; \
 else \
     echo "==> Native build for $TARGETPLATFORM"; \
-    cargo build --release --package strom --features no-gui,efp && \
+    cargo build --release --package strom --features ${STROM_FEATURES} && \
     cargo build --release --package strom-mcp-server; \
 fi && \
     { command -v sccache >/dev/null && [ -n "$RUSTC_WRAPPER" ] && sccache --show-stats || true; }
