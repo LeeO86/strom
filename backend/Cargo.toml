@@ -11,6 +11,7 @@ default = ["nvidia"]
 no-gui = []
 nvidia = ["dep:nvml-wrapper"]
 efp = ["dep:gst-plugin-efp"]
+mxl = []
 
 [dependencies]
 # Internal
@@ -64,6 +65,7 @@ gst-plugin-inter.workspace = true
 gst-plugin-rtp.workspace = true
 gst-plugins-lsp = { git = "https://github.com/srperens/lsp-plugins-rs", tag = "v1.3.1", package = "gst-plugins-lsp" }
 gst-plugin-efp = { git = "https://github.com/Eyevinn/efp", tag = "v0.3.0", package = "gst-plugin-efp", optional = true }
+gst-plugin-v210gl = { path = "../gst-plugin-v210gl" }
 
 # Encoding
 base64 = "0.22"

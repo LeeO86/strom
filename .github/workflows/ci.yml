@@ -102,13 +102,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy on backend
-        run: cargo clippy --package strom --all-targets --features efp,nvidia -- -D warnings
+        run: cargo clippy --package strom --package gst-plugin-v210gl --all-targets --features efp,mxl,nvidia -- -D warnings
 
       - name: Run Clippy on MCP server
         run: cargo clippy --package strom-mcp-server --all-targets -- -D warnings
 
       - name: Run tests on backend
-        run: cargo test --package strom --features efp,nvidia
+        run: cargo test --package strom --package gst-plugin-v210gl --features efp,mxl,nvidia
 
       - name: Run tests on MCP server
         run: cargo test --package strom-mcp-server
@@ -295,7 +295,7 @@ jobs:
         env:
           RUSTFLAGS: "-L /usr/lib/x86_64-linux-gnu"
         run: |
-          cargo zigbuild --release --package strom --features efp --target x86_64-unknown-linux-gnu.2.31
+          cargo zigbuild --release --package strom --features efp,mxl --target x86_64-unknown-linux-gnu.2.31
           cargo zigbuild --release --package strom-mcp-server --target x86_64-unknown-linux-gnu.2.31
 
       - name: Upload backend binary
@@ -405,7 +405,7 @@ jobs:
         env:
           RUSTFLAGS: "-L /usr/lib/aarch64-linux-gnu"
         run: |
-          cargo zigbuild --release --package strom --features efp --target aarch64-unknown-linux-gnu.2.31
+          cargo zigbuild --release --package strom --features efp,mxl --target aarch64-unknown-linux-gnu.2.31
           cargo zigbuild --release --package strom-mcp-server --target aarch64-unknown-linux-gnu.2.31
 
       - name: Upload backend binary
@@ -558,17 +558,17 @@ jobs:
 
       - name: Run Clippy
         run: |
-          cargo clippy --package strom --features efp,nvidia -- -D warnings
+          cargo clippy --package strom --package gst-plugin-v210gl --features efp,mxl,nvidia -- -D warnings
           cargo clippy --package strom-mcp-server -- -D warnings
 
       - name: Run tests
         run: |
-          cargo test --package strom --features efp,nvidia
+          cargo test --package strom --package gst-plugin-v210gl --features efp,mxl,nvidia
           cargo test --package strom-mcp-server
 
       - name: Build
         run: |
-          cargo build --release --package strom --features efp
+          cargo build --release --package strom --features efp,mxl
           cargo build --release --package strom-mcp-server
 
       - name: Upload backend binary
@@ -586,3 +586,82 @@ jobs:
           path: target/release/strom-mcp-server
           retention-days: 7
           if-no-files-found: error
+
+  # Publish an amd64 image with the MXL SDK baked in. Independent of the
+  # clippy/test jobs so a frontend lint failure cannot skip the image.
+  docker-ghcr:
+    name: Docker (GHCR)
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Free up disk space
+        run: |
+          echo "==> Disk space before cleanup"
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          echo "==> Disk space after cleanup"
+          df -h
+
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=mxl
+            type=sha,prefix=mxl-,format=short
+            type=ref,event=pr
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        env:
+          BUILDKIT_PROGRESS: plain
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
+          provenance: false
+          sbom: false
+          secrets: |
+            aws_access_key_id=${{ secrets.SCCACHE_S3_ACCESS_KEY_ID }}
+            aws_secret_access_key=${{ secrets.SCCACHE_S3_SECRET_ACCESS_KEY }}
+
+      - name: Summary
+        run: |
+          {
+            echo "## GHCR image"
+            echo ""
+            echo "linux/amd64, MXL feature + baked \`libmxl.so\` / \`libgstmxl.so\`."
+            echo ""
+            echo '```bash'
+            echo "docker pull ${{ steps.image.outputs.name }}:mxl"
+            echo "docker pull ${{ steps.image.outputs.name }}:mxl-${GITHUB_SHA::7}"
+            echo '```'
+            echo ""
+            echo "The first push creates a private package. Either \`docker login ghcr.io\` with a PAT (read:packages) or set the package public under GitHub → Packages."
+          } >> "$GITHUB_STEP_SUMMARY"

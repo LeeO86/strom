@@ -32,3 +32,4 @@ the parent [`docs/`](../) folder; for how a feature actually works, read the cod
 | [MIXER_BLOCK_PLAN.md](MIXER_BLOCK_PLAN.md) | Original Audio Mixer planning spec | Built — predates [MIXER_BLOCK.md](MIXER_BLOCK.md). |
 | [VIDEO_THUMBNAIL_BLOCK.md](VIDEO_THUMBNAIL_BLOCK.md) | Original thumbnail block design spec | Built — `builtin.thumbnail` shipped in v0.4.0. |
 | [WHEP_OUTPUT_BLOCK.md](WHEP_OUTPUT_BLOCK.md) | Original WHEP Output block design/implementation writeup | Outdated — the block evolved (multi-track since v0.5.0); kept for background. |
+| [MXL_GPU_T0_FINDINGS.md](MXL_GPU_T0_FINDINGS.md) | v210 ↔ GL spike (formats, 8-bit mixer, Option A) | Spike — read the code for the current elements. |

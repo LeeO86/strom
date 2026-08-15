@@ -1,0 +1,23 @@
+[package]
+name = "gst-plugin-v210gl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "GStreamer elements that unpack and pack v210 on the GPU via OpenGL"
+publish = false
+
+[lib]
+name = "gstv210gl"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+gstreamer.workspace = true
+gstreamer-base.workspace = true
+gstreamer-gl.workspace = true
+gstreamer-video.workspace = true
+
+[build-dependencies]
+gst-plugin-version-helper = "0.8"

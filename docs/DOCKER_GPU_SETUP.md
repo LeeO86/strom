@@ -81,6 +81,12 @@ docker run -d \
   eyevinntechnology/strom:latest
 ```
 
+For MXL GPU I/O on a host that already runs MXL media functions, bind-mount
+`/dev/shm/mxl` and use `--ipc=host`. `libmxl.so` / `libgstmxl.so` are baked
+into the image. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+Keep the vision mixer `gl_download` property at its default (`false`) so PGM
+stays in GLMemory.
+
 ## GPU Acceleration in Strom
 
 ### What Gets Accelerated

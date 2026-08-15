@@ -16,6 +16,14 @@ docker pull eyevinntechnology/strom-full:latest   # + CEF/Chromium for HTML rend
 
 Pin a specific version with a tag, e.g. `eyevinntechnology/strom:0.6.0`.
 
+This fork's CI also pushes an amd64 test image (MXL feature + baked `libmxl` / `libgstmxl`) to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/leeo86/strom:mxl
+```
+
+Pin a commit with `ghcr.io/leeo86/strom:mxl-<shortsha>`, or a PR with `ghcr.io/leeo86/strom:pr-<n>`. The first GHCR package is often private — `docker login ghcr.io` or set the package public. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+
 ## Quick start
 
 ```bash
@@ -32,7 +40,9 @@ configuration across restarts.
 
 For GPU acceleration add `--gpus all` and `-e NVIDIA_DRIVER_CAPABILITIES=all` — see
 [DOCKER_GPU_SETUP.md](DOCKER_GPU_SETUP.md). For WHEP/WHIP, AES67, NDI, or SRT, prefer
-`--network host` so these protocols don't have to fight Docker NAT.
+`--network host` so these protocols don't have to fight Docker NAT. For MXL, bind-mount
+the host domain (typically `/dev/shm/mxl`) and use `--ipc=host`. `libmxl` / `libgstmxl`
+are baked into the image — see [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
 
 ## Configuration
 

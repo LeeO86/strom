@@ -74,6 +74,7 @@ ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG BUILDARCH
 ARG TARGETARCH
+ARG STROM_FEATURES=no-gui,efp,mxl
 
 # Install Rust and base dependencies
 ENV DEBIAN_FRONTEND=noninteractive
@@ -218,7 +219,7 @@ RUN --mount=type=secret,id=aws_access_key_id \
     export CMAKE_C_FLAGS="-std=gnu17" && \
     export CMAKE_CXX_FLAGS="-std=gnu++17" && \
     export RUSTFLAGS="-L /usr/lib/aarch64-linux-gnu" && \
-    cargo zigbuild --release --package strom --no-default-features --features no-gui,efp --target aarch64-unknown-linux-gnu.2.36 && \
+    cargo zigbuild --release --package strom --no-default-features --features ${STROM_FEATURES} --target aarch64-unknown-linux-gnu.2.36 && \
     cargo zigbuild --release --package strom-mcp-server --target aarch64-unknown-linux-gnu.2.36 && \
     # Move binaries to expected location (cargo-zigbuild puts them in target/aarch64-unknown-linux-gnu/release)
     mkdir -p target/release && \
@@ -226,12 +227,48 @@ RUN --mount=type=secret,id=aws_access_key_id \
     cp target/aarch64-unknown-linux-gnu/release/strom-mcp-server target/release/strom-mcp-server; \
 else \
     echo "==> Native build for $TARGETPLATFORM"; \
-    cargo build --release --package strom --features no-gui,efp && \
+    cargo build --release --package strom --features ${STROM_FEATURES} && \
     cargo build --release --package strom-mcp-server; \
 fi && \
     { command -v sccache >/dev/null && [ -n "$RUSTC_WRAPPER" ] && sccache --show-stats || true; }
 
-# Stage 3: Runtime - Minimal runtime image with Ubuntu 25.10 (questing) for GStreamer 1.26
+# Stage 3: MXL SDK — libmxl.so + libgstmxl.so (mxlsrc / mxlsink).
+# Built for the target platform. Strom loads gstmxl at runtime; the SDK is
+# not a compile-time crate dependency (gstreamer-rs 0.24 vs Strom 0.25).
+FROM ubuntu:questing AS mxl-sdk
+ARG MXL_REF=v1.1.0-beta-1
+ENV DEBIAN_FRONTEND=noninteractive \
+    MXL_REF=${MXL_REF} \
+    VCPKG_ROOT=/opt/vcpkg \
+    INSTALL_PREFIX=/usr/local \
+    WORK_DIR=/tmp/mxl-sdk-build \
+    MXL_DIST_DIR=/opt/mxl-dist \
+    PATH="/root/.cargo/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        cmake \
+        ninja-build \
+        build-essential \
+        curl \
+        zip \
+        unzip \
+        tar \
+        pkg-config \
+        python3 \
+        ca-certificates \
+        libclang-dev \
+        libgstreamer1.0-dev \
+        libgstreamer-plugins-base1.0-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+
+COPY scripts/setup/mxl/install-mxl-sdk.sh /tmp/install-mxl-sdk.sh
+RUN bash /tmp/install-mxl-sdk.sh \
+    && test -e /opt/mxl-dist/lib/libmxl.so \
+    && test -e /opt/mxl-dist/gstreamer-1.0/libgstmxl.so
+
+# Stage 4: Runtime - Minimal runtime image with Ubuntu 25.10 (questing) for GStreamer 1.26
 FROM ubuntu:questing AS runtime
 WORKDIR /app
 
@@ -289,6 +326,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 # Copy the compiled binaries from backend-builder to /app
 COPY --from=backend-builder /app/target/release/strom /app/strom
 COPY --from=backend-builder /app/target/release/strom-mcp-server /app/strom-mcp-server
+
+# Bake libmxl + gstmxl. Fail the image if gst-inspect cannot load the plugin.
+COPY --from=mxl-sdk /opt/mxl-dist /opt/mxl-dist
+RUN set -euo pipefail \
+    && cp -a /opt/mxl-dist/lib/. /usr/local/lib/ \
+    && install -m0755 /opt/mxl-dist/gstreamer-1.0/libgstmxl.so \
+        "/usr/lib/$(uname -m)-linux-gnu/gstreamer-1.0/libgstmxl.so" \
+    && rm -rf /opt/mxl-dist \
+    && ldconfig \
+    && test -e /usr/local/lib/libmxl.so \
+    && gst-inspect-1.0 mxlsrc >/dev/null \
+    && gst-inspect-1.0 mxlsink >/dev/null
 
 # Copy setup scripts for optional host/container configuration (NDI, NVIDIA, etc.)
 COPY scripts/setup /app/scripts/setup

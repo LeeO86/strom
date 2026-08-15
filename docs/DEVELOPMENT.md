@@ -44,6 +44,7 @@ Make sure you have the following installed:
 |---------|-------------|--------------------|
 | `nvidia` | NVIDIA GPU monitoring (default) | None |
 | `efp` | EFP/SRT input and output blocks | `cmake`, `libclang-dev` (Linux) / `cmake` (macOS, via Homebrew) |
+| `mxl` | MXL video/audio input and output blocks | MXL SDK (`libmxl.so`) + `gstmxl` plugin at runtime — see [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md) |
 
 ```bash
 # Build with EFP support (Linux)
@@ -59,13 +60,18 @@ Pre-built Linux and macOS binaries, plus the Docker images, ship with the `efp`
 feature enabled. Windows binaries currently ship without EFP because
 `gst-plugin-efp` has not been validated on that platform yet.
 
+The Docker image enables `mxl` and bakes `libmxl.so` plus `libgstmxl.so`.
+CI pushes linux/amd64 to GHCR as `ghcr.io/<owner>/strom:mxl` (see
+[`scripts/setup/mxl/`](../scripts/setup/mxl/README.md)).
+
 ## Project Structure
 
 ```
 strom/
-├── types/          # Shared types library (strom-types)
-├── backend/        # Backend server (strom)
-└── frontend/       # Frontend WASM app (strom-frontend)
+├── types/              # Shared types library (strom-types)
+├── backend/            # Backend server (strom)
+├── frontend/           # Frontend WASM app (strom-frontend)
+└── gst-plugin-v210gl/  # GPU v210 upload/download elements
 ```
 
 ## Building
