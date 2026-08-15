@@ -20,6 +20,7 @@ pub mod events;
 pub mod flow;
 pub mod mediaplayer;
 pub mod mixer;
+pub mod mxl;
 pub mod network;
 pub mod state;
 pub mod stats;

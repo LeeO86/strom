@@ -407,14 +407,7 @@ fn run_with_gui(
         promote_va_plugin_ranks();
 
         // Register GStreamer plugins statically
-        gstwebrtchttp::plugin_register_static().expect("Could not register webrtchttp plugins");
-        gstrswebrtc::plugin_register_static().expect("Could not register webrtc plugins");
-        gstrsinter::plugin_register_static().expect("Could not register inter plugins");
-        gstrsrtp::plugin_register_static().expect("Could not register rtp plugins");
-        gstrsaudiofx::plugin_register_static().expect("Could not register audiofx plugins");
-        gst_plugins_lsp::plugin_register_static().expect("Could not register lsp-dsp-rs plugins");
-        #[cfg(feature = "efp")]
-        gst_plugin_efp::plugin_register_static().expect("Could not register efp mux/demux plugins");
+        strom::gst::register_static_plugins();
 
         // Detect GPU capabilities for video conversion mode selection
         // This tests CUDA-GL interop to determine if autovideoconvert works
@@ -562,14 +555,7 @@ async fn run_headless(
     promote_va_plugin_ranks();
 
     // Register GStreamer plugins statically
-    gstwebrtchttp::plugin_register_static().expect("Could not register webrtchttp plugins");
-    gstrswebrtc::plugin_register_static().expect("Could not register webrtc plugins");
-    gstrsinter::plugin_register_static().expect("Could not register inter plugins");
-    gstrsrtp::plugin_register_static().expect("Could not register rtp plugins");
-    gstrsaudiofx::plugin_register_static().expect("Could not register audiofx plugins");
-    gst_plugins_lsp::plugin_register_static().expect("Could not register lsp-dsp-rs plugins");
-    #[cfg(feature = "efp")]
-    gst_plugin_efp::plugin_register_static().expect("Could not register efp mux/demux plugins");
+    strom::gst::register_static_plugins();
 
     // Detect GPU capabilities for video conversion mode selection
     // This tests CUDA-GL interop to determine if autovideoconvert works

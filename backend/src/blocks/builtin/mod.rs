@@ -21,6 +21,8 @@ pub mod meter;
 pub mod mixer;
 pub mod mpegtssrt;
 pub mod mpegtssrt_input;
+#[cfg(feature = "mxl")]
+pub mod mxl;
 pub mod ndi;
 pub mod recorder;
 pub mod spectrum;
@@ -91,6 +93,10 @@ pub fn get_all_builtin_blocks() -> Vec<BlockDefinition> {
     // Add Mixer blocks
     blocks.extend(mixer::get_blocks());
 
+    // Add MXL blocks (hidden at runtime if gstmxl is not loaded)
+    #[cfg(feature = "mxl")]
+    blocks.extend(mxl::get_blocks());
+
     // Add MPEG-TS/SRT blocks
     blocks.extend(mpegtssrt::get_blocks());
 
@@ -157,6 +163,14 @@ pub fn get_builder(block_definition_id: &str) -> Option<Arc<dyn BlockBuilder>> {
         "builtin.media_player" => Some(Arc::new(mediaplayer::MediaPlayerBuilder)),
         "builtin.meter" => Some(Arc::new(meter::MeterBuilder)),
         "builtin.mixer" => Some(Arc::new(mixer::MixerBuilder)),
+        #[cfg(feature = "mxl")]
+        "builtin.mxl_video_input" => Some(Arc::new(mxl::MxlVideoInputBuilder)),
+        #[cfg(feature = "mxl")]
+        "builtin.mxl_video_output" => Some(Arc::new(mxl::MxlVideoOutputBuilder)),
+        #[cfg(feature = "mxl")]
+        "builtin.mxl_audio_input" => Some(Arc::new(mxl::MxlAudioInputBuilder)),
+        #[cfg(feature = "mxl")]
+        "builtin.mxl_audio_output" => Some(Arc::new(mxl::MxlAudioOutputBuilder)),
         #[cfg(feature = "efp")]
         "builtin.efpsrt_output" => Some(Arc::new(efpsrt::EfpSrtOutputBuilder)),
         #[cfg(feature = "efp")]
