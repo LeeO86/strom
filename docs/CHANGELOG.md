@@ -8,6 +8,7 @@ All notable changes to the Strom GStreamer Flow Engine project.
 - MXL video and audio input/output blocks (cargo feature `mxl`), with a `backend` property (`auto` / `gpu` / `cpu`) on the video pair
 - `v210glupload` / `v210gldownload` GStreamer elements: GPU unpack/pack of v210 via an RGB10A2 proxy texture (8-bit RGBA mixer path — not a bit-exact 10-bit round-trip)
 - Host/container setup notes under `scripts/setup/mxl/`
+- CI publishes an amd64 Docker image with the MXL SDK (`libmxl.so` + `libgstmxl.so`) baked in to GHCR (`:mxl`, `:mxl-<sha>`, `:pr-N`)
 
 ## [0.6.5] - 2026-06-12
 

@@ -82,9 +82,10 @@ docker run -d \
 ```
 
 For MXL GPU I/O on a host that already runs MXL media functions, bind-mount
-`/dev/shm/mxl` plus `libmxl.so` / `libgstmxl.so` and use `--ipc=host`. See
-[`scripts/setup/mxl/`](../scripts/setup/mxl/README.md). Keep the vision mixer
-`gl_download` property at its default (`false`) so PGM stays in GLMemory.
+`/dev/shm/mxl` and use `--ipc=host`. `libmxl.so` / `libgstmxl.so` are baked
+into the image. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+Keep the vision mixer `gl_download` property at its default (`false`) so PGM
+stays in GLMemory.
 
 ## GPU Acceleration in Strom
 

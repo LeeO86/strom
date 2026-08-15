@@ -60,8 +60,8 @@ Pre-built Linux and macOS binaries, plus the Docker images, ship with the `efp`
 feature enabled. Windows binaries currently ship without EFP because
 `gst-plugin-efp` has not been validated on that platform yet.
 
-The Docker image also enables `mxl`. The MXL SDK and `gstmxl` plugin are **not**
-baked into the image — bind-mount them from the host (see
+The Docker image enables `mxl` and bakes `libmxl.so` plus `libgstmxl.so`.
+CI pushes linux/amd64 to GHCR as `ghcr.io/<owner>/strom:mxl` (see
 [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md)).
 
 ## Project Structure

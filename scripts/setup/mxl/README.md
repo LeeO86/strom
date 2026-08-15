@@ -2,7 +2,9 @@
 
 Scripts and notes for running Strom against a Media eXchange Layer (MXL) domain.
 
-MXL is Apache-2.0: [dmf-mxl/mxl](https://github.com/dmf-mxl/mxl). Strom does not vendor the SDK. The `mxl` cargo feature compiles the MXL blocks; `gstmxl` is loaded at runtime because `gst-mxl-rs` pins gstreamer-rs 0.24 and Strom uses 0.25.
+MXL is Apache-2.0: [dmf-mxl/mxl](https://github.com/dmf-mxl/mxl). Strom does not vendor the SDK source. The `mxl` cargo feature compiles the MXL blocks; `gstmxl` is loaded at runtime because `gst-mxl-rs` pins gstreamer-rs 0.24 and Strom uses 0.25.
+
+The Docker image CI publishes to GHCR **does** bake `libmxl.so` and `libgstmxl.so`. You only need the host install script when running Strom on the host, or when building an image without the MXL stage.
 
 Code is the source of truth — this may have drifted; read the code for the current implementation.
 
@@ -23,14 +25,24 @@ The GPU element unit test is opt-in (`STROM_V210GL_GPU_TEST=1`) because an RGB10
 ./verify-mxl.sh
 ```
 
-`install-mxl-sdk.sh` clones [dmf-mxl/mxl](https://github.com/dmf-mxl/mxl) (default tag `v1.1.0-beta-1`, the first release that ships `gst-mxl-rs`), builds `libmxl` and `libgstmxl`, and installs them under `/usr/local`.
+`install-mxl-sdk.sh` clones [dmf-mxl/mxl](https://github.com/dmf-mxl/mxl) (default tag `v1.1.0-beta-1`, the first release that ships `gst-mxl-rs`), installs the CMake CONFIG deps via vcpkg (`stduuid`, `spdlog`, `fmt`, `picojson`), builds `libmxl` and `libgstmxl`, and installs them under `/usr/local`. The script fails if either `.so` is missing.
 
-## Docker PoC (GPU host with existing MXL media functions)
+## GHCR image (recommended for GPU host tests)
 
-The Strom image built with `--features no-gui,efp,mxl` contains the MXL blocks and the `v210glupload` / `v210gldownload` elements. It does **not** embed `libmxl.so` by default (CI/image size). Bind-mount the host SDK and the MXL domain:
+CI builds linux/amd64 with `--features no-gui,efp,mxl` and bakes `libmxl.so` + `libgstmxl.so`. Pull it instead of building locally:
 
 ```bash
-# Create the domain on the host if your media functions use the default path
+docker pull ghcr.io/leeo86/strom:mxl
+# or pin a commit / PR:
+# docker pull ghcr.io/leeo86/strom:mxl-<shortsha>
+# docker pull ghcr.io/leeo86/strom:pr-<n>
+```
+
+The first package GitHub creates is often **private**. Either `docker login ghcr.io` with a token that has `read:packages`, or set the package public (GitHub → Packages → `strom` → Package settings → Change visibility).
+
+On a host that already runs MXL media functions, bind the domain only — do **not** bind-mount host `.so` files over the baked ones:
+
+```bash
 mkdir -p /dev/shm/mxl
 
 docker run -d --name strom \
@@ -39,19 +51,15 @@ docker run -d --name strom \
   -e NVIDIA_DRIVER_CAPABILITIES=all \
   -e GST_GL_WINDOW=egl-device \
   -e GST_GL_PLATFORM=egl \
-  -e LD_LIBRARY_PATH=/usr/local/lib \
-  -e GST_PLUGIN_PATH=/usr/local/lib/gstreamer-1.0 \
   -v /dev/shm/mxl:/dev/shm/mxl \
-  -v /usr/local/lib/libmxl.so:/usr/local/lib/libmxl.so:ro \
-  -v /usr/local/lib/gstreamer-1.0/libgstmxl.so:/usr/local/lib/gstreamer-1.0/libgstmxl.so:ro \
   -p 8080:8080 \
   -v "$(pwd)/data:/data" \
-  strom-mxl:local
+  ghcr.io/leeo86/strom:mxl
 ```
 
-Adjust the two library bind-mounts to wherever your working MXL install lives. `--ipc=host` plus the `/dev/shm/mxl` bind is what lets the container see grains published by host media functions.
+`--ipc=host` plus the `/dev/shm/mxl` bind is what lets the container see grains published by host media functions.
 
-Build the image from this branch:
+To build the same image locally:
 
 ```bash
 docker build -t strom-mxl:local --build-arg STROM_FEATURES=no-gui,efp,mxl .

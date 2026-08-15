@@ -132,7 +132,7 @@ We welcome feature requests, ideas, and pull requests — ideally AI-written, in
 
 ## Contributing
 
-See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). CI runs tests and builds binaries for Linux, Windows, macOS, and ARM64, and publishes Docker images on release.
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). CI runs tests and builds binaries for Linux, Windows, macOS, and ARM64, publishes Docker images on release, and pushes an amd64 MXL-enabled image (SDK baked in) to GHCR.
 
 ## License
 
