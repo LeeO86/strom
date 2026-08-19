@@ -13,6 +13,8 @@ All notable changes to the Strom GStreamer Flow Engine project.
 ### Fixed
 - Frontend: suffix egui stroke and plot widths as `f32` so rustc 1.97 `-D warnings` no longer fails on the `f32: From<f64>` fallback ([rust#154024](https://github.com/rust-lang/rust/issues/154024))
 - Docker / `gst-mxl-rs`: `mxlsink` dlopened the SDK build-tree path (`.../Linux-Clang-Release/lib/libmxl.so`) instead of `/usr/local/lib/libmxl.so`, so flows failed at start with "Failed to load MXL API" even though the library was baked in
+- MXL video/audio output: default `mxlsink` `sync=false` `async=false` so live pipelines reach PLAYING, grains advance, and the flow directory is destroyed on stop (BaseSink defaults deadlocked preroll and leaked the writer)
+- Docker MXL: do not use `--ipc=host` — MXL shares grains via the bind-mounted domain tmpfs; `ipc: host` makes `mxlsrc` negotiate caps then emit zero buffers
 
 ## [0.6.5] - 2026-06-12
 

@@ -347,7 +347,7 @@ RUN set -euo pipefail \
     && gst-launch-1.0 -q videotestsrc num-buffers=1 \
          ! videoconvert \
          ! video/x-raw,format=v210,width=1280,height=720,framerate=25/1 \
-         ! mxlsink domain=/tmp/mxl-bake-domain flow-id=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee \
+         ! mxlsink domain=/tmp/mxl-bake-domain flow-id=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee sync=false async=false \
     && rm -rf /tmp/mxl-bake-domain
 
 # Copy setup scripts for optional host/container configuration (NDI, NVIDIA, etc.)

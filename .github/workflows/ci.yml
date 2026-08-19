@@ -755,7 +755,7 @@ jobs:
             echo "docker pull ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}"
             echo '```'
             echo ""
-            echo "Use this image when Open Live HTML graphics sources need CEF. Bind \`/dev/shm/mxl\` and use \`--gpus all\` + \`--ipc=host\` the same way as the base MXL image."
+            echo "Use this image when Open Live HTML graphics sources need CEF. Bind the host MXL domain (e.g. \`/dev/shm/mxl:/dev/shm/mxl\`) and use \`--gpus all\`. Do not set \`--ipc=host\` — it breaks mxlsrc."
             echo ""
             echo "The first push creates a private package. Either \`docker login ghcr.io\` with a PAT (read:packages) or set the package public under GitHub → Packages."
           } >> "$GITHUB_STEP_SUMMARY"

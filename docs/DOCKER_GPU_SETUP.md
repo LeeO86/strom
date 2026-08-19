@@ -82,8 +82,12 @@ docker run -d \
 ```
 
 For MXL GPU I/O on a host that already runs MXL media functions, bind-mount
-`/dev/shm/mxl` and use `--ipc=host`. `libmxl.so` / `libgstmxl.so` are baked
-into the image. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+the domain directory (typically `/dev/shm/mxl`, or whatever tmpfs path the
+host uses) into the container at the same path the blocks use (`domain`,
+default `/dev/shm/mxl`). Do **not** pass `--ipc=host`: MXL shares grains
+via mmap of files in that domain, and `ipc: host` makes `mxlsrc` negotiate
+caps then emit zero buffers. `libmxl.so` / `libgstmxl.so` are baked into
+the image. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
 Keep the vision mixer `gl_download` property at its default (`false`) so PGM
 stays in GLMemory.
 

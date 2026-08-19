@@ -42,8 +42,9 @@ configuration across restarts.
 For GPU acceleration add `--gpus all` and `-e NVIDIA_DRIVER_CAPABILITIES=all` — see
 [DOCKER_GPU_SETUP.md](DOCKER_GPU_SETUP.md). For WHEP/WHIP, AES67, NDI, or SRT, prefer
 `--network host` so these protocols don't have to fight Docker NAT. For MXL, bind-mount
-the host domain (typically `/dev/shm/mxl`) and use `--ipc=host`. `libmxl` / `libgstmxl`
-are baked into the image — see [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+the host domain (typically `/dev/shm/mxl`) — do **not** use `--ipc=host` (it breaks
+`mxlsrc`). `libmxl` / `libgstmxl` are baked into the image — see
+[`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
 
 ## Configuration
 

@@ -194,6 +194,12 @@ Notes:
 - `network_mode: host` is recommended when running WHEP/WHIP, AES67, NDI, or SRT — these protocols are easier to operate without Docker NAT.
 - The `$$` in `STROM_ADMIN_PASSWORD_HASH` is required in `docker compose` to escape the literal `$` characters in the bcrypt hash. If you set the variable directly via `docker run -e`, use a single `$`.
 - Add the DeckLink volume mounts from section 4 if applicable.
+- For MXL, bind-mount the host domain into the container (for example
+  `/dev/shm/mxl:/dev/shm/mxl`, or `/path/on/host/domain:/dev/shm/mxl`). Do
+  **not** set `ipc: host` — that flag makes `mxlsrc` negotiate caps then emit
+  zero buffers, so WHEP never binds and `/whep/<id>` returns 502. Use
+  `ghcr.io/leeo86/strom-full:mxl` when the production needs both MXL and HTML
+  graphics.
 - To terminate TLS in Strom itself, mount your certificates and set `STROM_TLS_CERT` / `STROM_TLS_KEY`. See [README — HTTPS/TLS](https://github.com/Eyevinn/strom#httpstls).
 
 Bring it up:

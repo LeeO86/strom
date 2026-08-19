@@ -107,6 +107,22 @@ fn set_if_present(element: &gst::Element, name: &str, value: &str) {
     }
 }
 
+/// Live MXL output must not preroll against the pipeline clock.
+///
+/// `mxlsink` inherits BaseSink `sync=true` / `async=true`. Together those leave
+/// the pipeline in PAUSED (pending PLAYING): the sink waits for the clock,
+/// the clock does not run until PLAYING, and the MXL worker also sleeps on
+/// grain PTS. Head index stays 0, and teardown never reaches the writer
+/// `destroy()` path, so the flow directory is leaked. Other live sinks in
+/// this tree (WHEP, WHIP, AES67, SRT, DeckLink drain) already force
+/// `async=false` for the same reason.
+fn configure_mxl_sink_clock(sink: &gst::Element, properties: &HashMap<String, PropertyValue>) {
+    let sync = parse_bool(properties, "sync", false);
+    let async_state = parse_bool(properties, "async", false);
+    sink.set_property("sync", sync);
+    sink.set_property("async", async_state);
+}
+
 fn backend_enum_values() -> Vec<EnumValue> {
     vec![
         EnumValue {
@@ -342,6 +358,7 @@ impl BlockBuilder for MxlVideoOutputBuilder {
         if !group_hint.is_empty() {
             set_if_present(&sink, "group-hint", group_hint);
         }
+        configure_mxl_sink_clock(&sink, properties);
 
         let mut elements = vec![(q_id.clone(), queue), (sink_id.clone(), sink)];
         let mut links = Vec::new();
@@ -547,6 +564,7 @@ impl BlockBuilder for MxlAudioOutputBuilder {
         if !group_hint.is_empty() {
             set_if_present(&sink, "group-hint", group_hint);
         }
+        configure_mxl_sink_clock(&sink, properties);
 
         Ok(BlockBuildResult {
             elements: vec![
@@ -696,6 +714,18 @@ fn video_output_definition() -> BlockDefinition {
                 "Encode YCbCr as full range (default is limited/narrow)",
                 false,
             ),
+            bool_prop(
+                "sync",
+                "Sync to clock",
+                "BaseSink sync. Leave off for live MXL output — on (with async) deadlocks preroll, writes no grains, and leaks the flow directory",
+                false,
+            ),
+            bool_prop(
+                "async",
+                "Async state change",
+                "BaseSink async. Leave off so the pipeline can reach PLAYING without waiting for the first synced buffer",
+                false,
+            ),
         ],
         external_pads: ExternalPads {
             inputs: vec![ExternalPad {
@@ -795,6 +825,18 @@ fn audio_output_definition() -> BlockDefinition {
                 "",
                 "mxlsink",
                 "group-hint",
+            ),
+            bool_prop(
+                "sync",
+                "Sync to clock",
+                "BaseSink sync. Leave off for live MXL output — on (with async) deadlocks preroll, writes no grains, and leaks the flow directory",
+                false,
+            ),
+            bool_prop(
+                "async",
+                "Async state change",
+                "BaseSink async. Leave off so the pipeline can reach PLAYING without waiting for the first synced buffer",
+                false,
             ),
         ],
         external_pads: ExternalPads {
@@ -914,6 +956,20 @@ mod tests {
                 assert!(!prop.name.is_empty());
                 assert!(prop.default_value.is_some());
             }
+        }
+        for def in [video_output_definition(), audio_output_definition()] {
+            let sync = def
+                .exposed_properties
+                .iter()
+                .find(|p| p.name == "sync")
+                .expect("mxlsink sync");
+            let async_prop = def
+                .exposed_properties
+                .iter()
+                .find(|p| p.name == "async")
+                .expect("mxlsink async");
+            assert_eq!(sync.default_value, Some(PropertyValue::Bool(false)));
+            assert_eq!(async_prop.default_value, Some(PropertyValue::Bool(false)));
         }
     }
 
