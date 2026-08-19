@@ -968,8 +968,14 @@ mod tests {
                 .iter()
                 .find(|p| p.name == "async")
                 .expect("mxlsink async");
-            assert_eq!(sync.default_value, Some(PropertyValue::Bool(false)));
-            assert_eq!(async_prop.default_value, Some(PropertyValue::Bool(false)));
+            assert!(
+                matches!(sync.default_value, Some(PropertyValue::Bool(false))),
+                "sync default must be false"
+            );
+            assert!(
+                matches!(async_prop.default_value, Some(PropertyValue::Bool(false))),
+                "async default must be false"
+            );
         }
     }
 
