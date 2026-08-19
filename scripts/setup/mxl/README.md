@@ -43,14 +43,13 @@ docker pull ghcr.io/leeo86/strom-full:mxl
 
 The first package GitHub creates is often **private**. Either `docker login ghcr.io` with a token that has `read:packages`, or set the package public (GitHub → Packages → `strom` → Package settings → Change visibility).
 
-On a host that already runs MXL media functions, bind the domain only — do **not** bind-mount host `.so` files over the baked ones:
+On a host that already runs MXL media functions, bind the domain only — do **not** bind-mount host `.so` files over the baked ones, and do **not** pass `--ipc=host`:
 
 ```bash
 mkdir -p /dev/shm/mxl
 
 docker run -d --name strom \
   --gpus all \
-  --ipc=host \
   -e NVIDIA_DRIVER_CAPABILITIES=all \
   -e GST_GL_WINDOW=egl-device \
   -e GST_GL_PLATFORM=egl \
@@ -61,7 +60,15 @@ docker run -d --name strom \
   # or ghcr.io/leeo86/strom-full:mxl when HTML graphics / cefsrc is required
 ```
 
-`--ipc=host` plus the `/dev/shm/mxl` bind is what lets the container see grains published by host media functions.
+If the host domain is not `/dev/shm/mxl` (for example a separate tmpfs), bind that path onto the container path the blocks use (`domain`, default `/dev/shm/mxl`):
+
+```bash
+  -v /path/on/host/domain:/dev/shm/mxl
+```
+
+MXL shares grains by mmap of files in the domain directory. `--ipc=host` is not required and is harmful: `mxlsrc` will still open `flow_def.json` and negotiate caps, then emit zero buffers and leave the pipeline stuck in PAUSED (pending PLAYING). CBC media-function containers use the default private IPC namespace with the same bind mount.
+
+`mxlsink` live output needs `sync=false` `async=false` (Strom MXL output blocks now default to that). With both at GStreamer defaults the sink creates the flow directory, receives buffers, writes no grains, and leaks the flow on teardown.
 
 Do not reuse a GStreamer registry from a GPU-less builder. `gst-inspect-1.0 nvcodec` on a GPU host should list encoder/decoder features, not `0 features`. If an older image still ships `/root/.cache/gstreamer-1.0/registry.x86_64.bin`, start with `-e GST_REGISTRY=/tmp/gst-registry.bin` or pull a tag that wipes that cache at the end of the image build.
 
