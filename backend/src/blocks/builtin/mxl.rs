@@ -17,6 +17,7 @@ use crate::blocks::{BlockBuildContext, BlockBuildError, BlockBuildResult, BlockB
 use crate::gpu;
 use gstreamer as gst;
 use gstreamer::prelude::*;
+use gstreamer_base::prelude::*;
 use std::collections::HashMap;
 use strom_types::mxl::{
     MxlColorimetry, MxlVideoBackend, DEFAULT_MXL_DOMAIN, MXL_AUDIO_INPUT_ID, MXL_AUDIO_OUTPUT_ID,
@@ -116,11 +117,36 @@ fn set_if_present(element: &gst::Element, name: &str, value: &str) {
 /// `destroy()` path, so the flow directory is leaked. Other live sinks in
 /// this tree (WHEP, WHIP, AES67, SRT, DeckLink drain) already force
 /// `async=false` for the same reason.
+///
+/// Set these via the BaseSink C API after `ElementFactory::make`:
+/// - The UI only serializes modified block properties, so `sync`/`async` are
+///   usually absent from `properties` even though the block default is false.
+/// - gst-mxl-rs `constructed()` then calls `set_sync(true)`, restoring the
+///   deadlock default. `gst-launch … mxlsink sync=false async=false` works
+///   because parse applies those after `constructed()`. Strom must do the same.
+///
+/// `GST_DEBUG=mxlsink:6` never logs "Changing sync/async": those pspecs are
+/// owned by GstBaseSink, so GObject dispatches them to the parent class.
+/// mxlsink's `set_property` only handles `domain` / `flow-id`. Absence of
+/// those debug lines is not proof the values were skipped. Read the log
+/// below (`is_sync=` / `is_async=`) instead.
 fn configure_mxl_sink_clock(sink: &gst::Element, properties: &HashMap<String, PropertyValue>) {
+    let Some(base_sink) = sink.downcast_ref::<gstreamer_base::BaseSink>() else {
+        warn!("mxlsink is not a GstBaseSink — cannot set sync/async");
+        return;
+    };
     let sync = parse_bool(properties, "sync", false);
     let async_state = parse_bool(properties, "async", false);
-    sink.set_property("sync", sync);
-    sink.set_property("async", async_state);
+    base_sink.set_sync(sync);
+    base_sink.set_async(async_state);
+    info!(
+        "mxlsink {}: BaseSink is_sync={} is_async={} (requested sync={} async={})",
+        sink.name(),
+        base_sink.is_sync(),
+        base_sink.is_async(),
+        sync,
+        async_state
+    );
 }
 
 fn backend_enum_values() -> Vec<EnumValue> {
@@ -930,6 +956,8 @@ mod tests {
     fn init() {
         let _ = gst::init();
         let _ = gstv210gl::plugin_register_static();
+        #[cfg(feature = "mxl")]
+        let _ = gst::Plugin::load_by_name("mxl");
     }
 
     #[test]
@@ -984,5 +1012,74 @@ mod tests {
         init();
         assert!(gst::ElementFactory::find("v210glupload").is_some());
         assert!(gst::ElementFactory::find("v210gldownload").is_some());
+    }
+
+    fn find_mxl_sink(result: &BlockBuildResult) -> gst::Element {
+        result
+            .elements
+            .iter()
+            .find(|(id, _)| id.ends_with(":mxlsink"))
+            .map(|(_, e)| e.clone())
+            .expect("block result must contain mxlsink")
+    }
+
+    fn assert_live_mxl_clock(sink: &gst::Element) {
+        let base = sink
+            .downcast_ref::<gstreamer_base::BaseSink>()
+            .expect("mxlsink is a GstBaseSink");
+        assert!(
+            !base.is_sync(),
+            "live mxlsink must have BaseSink sync=false (got true; GObject set_property is swallowed)"
+        );
+        assert!(
+            !base.is_async(),
+            "live mxlsink must have BaseSink async=false (got true; GObject set_property is swallowed)"
+        );
+    }
+
+    #[test]
+    fn configure_mxl_sink_clock_overrides_basesink_defaults_when_properties_empty() {
+        init();
+        // appsink keeps BaseSink's sync=true/async=true (fakesink overrides sync to false).
+        let sink = gst::ElementFactory::make("appsink")
+            .build()
+            .expect("appsink");
+        {
+            let base = sink
+                .downcast_ref::<gstreamer_base::BaseSink>()
+                .expect("appsink is a GstBaseSink");
+            assert!(base.is_sync(), "appsink default sync is true");
+            assert!(base.is_async(), "appsink default async is true");
+        }
+        configure_mxl_sink_clock(&sink, &HashMap::new());
+        assert_live_mxl_clock(&sink);
+    }
+
+    #[test]
+    fn video_output_forces_sync_async_off_when_ui_omits_unmodified_defaults() {
+        init();
+        if !is_mxl_available() {
+            eprintln!("gstmxl plugin not available — skipping");
+            return;
+        }
+        let ctx = BlockBuildContext::new(vec![], "all".to_string());
+        let result = MxlVideoOutputBuilder
+            .build("test_mxl_vo", &HashMap::new(), &ctx)
+            .expect("empty properties must still build (UI omits unmodified defaults)");
+        assert_live_mxl_clock(&find_mxl_sink(&result));
+    }
+
+    #[test]
+    fn audio_output_forces_sync_async_off_when_ui_omits_unmodified_defaults() {
+        init();
+        if !is_mxl_available() {
+            eprintln!("gstmxl plugin not available — skipping");
+            return;
+        }
+        let ctx = BlockBuildContext::new(vec![], "all".to_string());
+        let result = MxlAudioOutputBuilder
+            .build("test_mxl_ao", &HashMap::new(), &ctx)
+            .expect("empty properties must still build (UI omits unmodified defaults)");
+        assert_live_mxl_clock(&find_mxl_sink(&result));
     }
 }
