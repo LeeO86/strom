@@ -29,13 +29,16 @@ The GPU element unit test is opt-in (`STROM_V210GL_GPU_TEST=1`) because an RGB10
 
 ## GHCR image (recommended for GPU host tests)
 
-CI builds linux/amd64 with `--features no-gui,efp,mxl` and bakes `libmxl.so` + `libgstmxl.so`. Pull it instead of building locally:
+CI builds linux/amd64 with `--features no-gui,efp,mxl` and bakes `libmxl.so` + `libgstmxl.so`. Pull it instead of building locally. `strom-full` is the same image plus CEF (`gstcefsrc`) and Xvfb — use that when Open Live HTML graphics sources need `cefsrc`.
 
 ```bash
 docker pull ghcr.io/leeo86/strom:mxl
+docker pull ghcr.io/leeo86/strom-full:mxl
 # or pin a commit / PR:
 # docker pull ghcr.io/leeo86/strom:mxl-<shortsha>
+# docker pull ghcr.io/leeo86/strom-full:mxl-<shortsha>
 # docker pull ghcr.io/leeo86/strom:pr-<n>
+# docker pull ghcr.io/leeo86/strom-full:pr-<n>
 ```
 
 The first package GitHub creates is often **private**. Either `docker login ghcr.io` with a token that has `read:packages`, or set the package public (GitHub → Packages → `strom` → Package settings → Change visibility).
@@ -55,6 +58,7 @@ docker run -d --name strom \
   -p 8080:8080 \
   -v "$(pwd)/data:/data" \
   ghcr.io/leeo86/strom:mxl
+  # or ghcr.io/leeo86/strom-full:mxl when HTML graphics / cefsrc is required
 ```
 
 `--ipc=host` plus the `/dev/shm/mxl` bind is what lets the container see grains published by host media functions.
@@ -63,6 +67,17 @@ To build the same image locally:
 
 ```bash
 docker build -t strom-mxl:local --build-arg STROM_FEATURES=no-gui,efp,mxl .
+```
+
+To layer CEF/Xvfb on that local base (Open Live HTML graphics):
+
+```bash
+docker build -f docker/strom-full/Dockerfile \
+  --build-arg BASE_IMAGE=strom-mxl \
+  --build-arg VERSION=local \
+  --build-arg TARGETARCH=amd64 \
+  -t strom-mxl-full:local \
+  docker/strom-full
 ```
 
 ## Vision mixer

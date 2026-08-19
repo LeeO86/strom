@@ -67,6 +67,7 @@ jobs:
           tags: ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-amd64
           platforms: linux/amd64
           build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}
             VERSION=${{ steps.version.outputs.version }}
             TARGETARCH=amd64
           cache-from: type=gha,scope=docker-full-amd64
@@ -117,6 +118,7 @@ jobs:
           tags: ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-arm64
           platforms: linux/arm64
           build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}
             VERSION=${{ steps.version.outputs.version }}
             TARGETARCH=arm64
           cache-from: type=gha,scope=docker-full-arm64
