@@ -16,13 +16,14 @@ docker pull eyevinntechnology/strom-full:latest   # + CEF/Chromium for HTML rend
 
 Pin a specific version with a tag, e.g. `eyevinntechnology/strom:0.6.0`.
 
-This fork's CI also pushes an amd64 test image (MXL feature + baked `libmxl` / `libgstmxl`) to GitHub Container Registry:
+This fork's CI also pushes amd64 test images (MXL feature + baked `libmxl` / `libgstmxl`) to GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/leeo86/strom:mxl
+docker pull ghcr.io/leeo86/strom:mxl        # base (MXL, no CEF)
+docker pull ghcr.io/leeo86/strom-full:mxl   # + CEF/Chromium for HTML rendering
 ```
 
-Pin a commit with `ghcr.io/leeo86/strom:mxl-<shortsha>`, or a PR with `ghcr.io/leeo86/strom:pr-<n>`. The first GHCR package is often private — `docker login ghcr.io` or set the package public. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+Pin a commit with `ghcr.io/leeo86/strom:mxl-<shortsha>` / `ghcr.io/leeo86/strom-full:mxl-<shortsha>`, or a PR with `:pr-<n>`. The first GHCR package is often private — `docker login ghcr.io` or set the package public. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md). Use `strom-full` when Open Live HTML graphics sources need `cefsrc`.
 
 ## Quick start
 

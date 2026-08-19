@@ -26,8 +26,11 @@ HTML rendering requires Chromium Embedded Framework (CEF), which adds significan
 ### Quick Start
 
 ```bash
-# Pull the full image
+# Pull the full image (Docker Hub)
 docker pull eyevinntechnology/strom-full:latest
+
+# This fork also publishes an MXL-enabled full image to GHCR:
+# docker pull ghcr.io/leeo86/strom-full:mxl
 
 # Run with host networking (recommended for multicast/AES67)
 docker run --network host eyevinntechnology/strom-full:latest

@@ -6,11 +6,17 @@
 #
 # CEF adds ~400MB compressed (~800MB uncompressed) to the image, hence the separate "full" variant.
 #
+# BASE_IMAGE defaults to Docker Hub (upstream publish). The GHCR job overrides
+# it to ghcr.io/<owner>/strom so the CEF layer sits on the MXL-enabled image.
+#
 # Usage:
 #   docker run -p 8080:8080 eyevinntechnology/strom-full:latest
+#   docker build --build-arg BASE_IMAGE=ghcr.io/leeo86/strom --build-arg VERSION=mxl \
+#     --build-arg TARGETARCH=amd64 -t strom-full docker/strom-full
 
+ARG BASE_IMAGE=eyevinntechnology/strom
 ARG VERSION=latest
-FROM eyevinntechnology/strom:${VERSION}
+FROM ${BASE_IMAGE}:${VERSION}
 
 # gstcefsrc version (pinned to known-good version)
 ARG GSTCEFSRC_VERSION=144.0.21
@@ -39,6 +45,12 @@ RUN apt-get update && apt-get install -y \
 ENV GST_PLUGIN_PATH=/usr/local/lib/gstreamer-1.0:$GST_PLUGIN_PATH
 ENV LD_LIBRARY_PATH=/usr/local/lib/cef:$LD_LIBRARY_PATH
 ENV GST_CEF_SUBPROCESS_PATH=/usr/local/lib/gstreamer-1.0/gstcefsubprocess
+
+# Fail the image build if the CEF plugin did not land. mxlsrc/mxlsink are not
+# checked here — the Docker Hub base image does not bake MXL; the GHCR job
+# verifies those after pushing strom-full.
+RUN gst-inspect-1.0 cefsrc >/dev/null \
+    && echo "gstcefsrc plugin verified"
 
 # Copy entrypoint script that auto-starts Xvfb for headless CEF rendering
 COPY entrypoint.sh /entrypoint.sh
