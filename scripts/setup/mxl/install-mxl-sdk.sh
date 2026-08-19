@@ -80,26 +80,6 @@ echo "==> Cloning ${MXL_REPO} @ ${MXL_REF}"
 rm -rf "${WORK_DIR}"
 git clone --depth 1 --branch "${MXL_REF}" "${MXL_REPO}" "${WORK_DIR}"
 
-# gst-mxl-rs --features mxl/mxl-not-built compiles get_mxl_so_path() as
-# $MXL_BUILD_DIR/lib/libmxl.so. rust/mxl/build.rs sets MXL_BUILD_DIR to
-# <repo>/build/Linux-Clang-Release, which is /tmp/mxl-sdk-build/... in Docker
-# and does not exist in the runtime image. Point it at INSTALL_PREFIX so
-# mxlsink dlopens /usr/local/lib/libmxl.so (the copy we install below).
-python3 - "${WORK_DIR}/rust/mxl/build.rs" "${PREFIX}" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-prefix = sys.argv[2]
-text = path.read_text()
-old = 'let build_dir = repo_root.join("build").join(BUILD_VARIANT);'
-new = f'let build_dir = PathBuf::from("{prefix}");'
-if old not in text:
-    raise SystemExit(f"error: {path} no longer contains the MXL_BUILD_DIR assignment")
-path.write_text(text.replace(old, new, 1))
-print(f"patched {path}: MXL_BUILD_DIR -> {prefix}")
-PY
-
 # Slim manifest: skip catch2 / cli11 / ada-url / pcapplusplus (tests and tools).
 cat > "${WORK_DIR}/vcpkg.json" <<EOF
 {
@@ -139,6 +119,37 @@ fi
 export PKG_CONFIG_PATH="${LIBDIR}/pkgconfig:${PKG_CONFIG_PATH:-}"
 export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
 
+# gst-mxl-rs --features mxl/mxl-not-built compiles get_mxl_so_path() as
+# $MXL_BUILD_DIR/lib/libmxl.so assembled at runtime. rust/mxl/build.rs sets
+# MXL_BUILD_DIR to <repo>/build/Linux-Clang-Release, which is
+# /tmp/mxl-sdk-build/... in Docker and does not exist in the runtime image.
+# Bake the installed library path as a single string so mxlsink dlopens
+# /usr/local/lib/libmxl.so (the copy we install into the runtime image).
+python3 - "${WORK_DIR}/rust/mxl/src/config.rs" "${LIBDIR}/libmxl.so" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+so_path = sys.argv[2]
+text = path.read_text()
+pat = re.compile(
+    r'#\[cfg\(feature = "mxl-not-built"\)\]\s*'
+    r'pub fn get_mxl_so_path\(\) -> std::path::PathBuf \{.*?\n\}',
+    re.DOTALL,
+)
+new = (
+    '#[cfg(feature = "mxl-not-built")]\n'
+    'pub fn get_mxl_so_path() -> std::path::PathBuf {\n'
+    f'    std::path::PathBuf::from("{so_path}")\n'
+    '}'
+)
+if not pat.search(text):
+    raise SystemExit(f"error: {path} mxl-not-built get_mxl_so_path() did not match")
+path.write_text(pat.sub(new, text, count=1))
+print(f"patched {path}: get_mxl_so_path -> {so_path}")
+PY
+
 echo "==> Building gst-mxl-rs plugin"
 if [[ ! -d "${WORK_DIR}/rust/gst-mxl-rs" ]]; then
   echo "error: rust/gst-mxl-rs missing on ${MXL_REF}" >&2
@@ -155,12 +166,12 @@ if [[ ! -f "${PLUGIN_SRC}" ]]; then
   find "${WORK_DIR}/rust/target" -name 'libgstmxl*' || true
   exit 1
 fi
-if strings "${PLUGIN_SRC}" | grep -q 'Linux-Clang-Release/lib/libmxl.so'; then
+if grep -a -q 'Linux-Clang-Release/lib/libmxl.so' "${PLUGIN_SRC}"; then
   echo "error: libgstmxl.so still embeds the CMake-preset libmxl path" >&2
   exit 1
 fi
-if ! strings "${PLUGIN_SRC}" | grep -q "${PREFIX}/lib/libmxl.so"; then
-  echo "error: libgstmxl.so does not embed ${PREFIX}/lib/libmxl.so" >&2
+if ! grep -a -q "${LIBDIR}/libmxl.so" "${PLUGIN_SRC}"; then
+  echo "error: libgstmxl.so does not embed ${LIBDIR}/libmxl.so" >&2
   exit 1
 fi
 
