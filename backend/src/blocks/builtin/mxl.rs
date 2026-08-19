@@ -118,13 +118,18 @@ fn set_if_present(element: &gst::Element, name: &str, value: &str) {
 /// this tree (WHEP, WHIP, AES67, SRT, DeckLink drain) already force
 /// `async=false` for the same reason.
 ///
-/// Two reasons this cannot go through `GObject.set_property("sync"|"async")`:
-/// 1. The UI only serializes modified block properties, so `sync`/`async` are
-///    usually absent from `properties` even though the block default is false.
-/// 2. gst-mxl-rs `ObjectImpl::set_property` handles only `domain` / `flow-id`
-///    and does not chain to the parent, so GObject writes to BaseSink props
-///    are dropped (GST_DEBUG=mxlsink only logs those two). Call the BaseSink
-///    C setters instead.
+/// Set these via the BaseSink C API after `ElementFactory::make`:
+/// - The UI only serializes modified block properties, so `sync`/`async` are
+///   usually absent from `properties` even though the block default is false.
+/// - gst-mxl-rs `constructed()` then calls `set_sync(true)`, restoring the
+///   deadlock default. `gst-launch … mxlsink sync=false async=false` works
+///   because parse applies those after `constructed()`. Strom must do the same.
+///
+/// `GST_DEBUG=mxlsink:6` never logs "Changing sync/async": those pspecs are
+/// owned by GstBaseSink, so GObject dispatches them to the parent class.
+/// mxlsink's `set_property` only handles `domain` / `flow-id`. Absence of
+/// those debug lines is not proof the values were skipped. Read the log
+/// below (`is_sync=` / `is_async=`) instead.
 fn configure_mxl_sink_clock(sink: &gst::Element, properties: &HashMap<String, PropertyValue>) {
     let Some(base_sink) = sink.downcast_ref::<gstreamer_base::BaseSink>() else {
         warn!("mxlsink is not a GstBaseSink — cannot set sync/async");
@@ -135,8 +140,10 @@ fn configure_mxl_sink_clock(sink: &gst::Element, properties: &HashMap<String, Pr
     base_sink.set_sync(sync);
     base_sink.set_async(async_state);
     info!(
-        "mxlsink {}: BaseSink set_sync({}) set_async({})",
+        "mxlsink {}: BaseSink is_sync={} is_async={} (requested sync={} async={})",
         sink.name(),
+        base_sink.is_sync(),
+        base_sink.is_async(),
         sync,
         async_state
     );

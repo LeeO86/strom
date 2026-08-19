@@ -15,7 +15,7 @@ All notable changes to the Strom GStreamer Flow Engine project.
 - Docker / `gst-mxl-rs`: `mxlsink` dlopened the SDK build-tree path (`.../Linux-Clang-Release/lib/libmxl.so`) instead of `/usr/local/lib/libmxl.so`, so flows failed at start with "Failed to load MXL API" even though the library was baked in
 - Docker: do not bake `/root/.cache/gstreamer-1.0` from the GPU-less image builder — a stale `registry.x86_64.bin` cached `nvcodec` as 0 features, so containers skipped NVENC even with a working driver and `libcuda`
 - Docker: `strom` / `strom-full` entrypoints fall back to `/app/strom` when no command is passed, then `exec` the container command so `docker run IMAGE CMD` is not swallowed
-- MXL video/audio output: force `mxlsink` `sync=false` `async=false` via the BaseSink C setters (not GObject `set_property`). The UI omits unmodified defaults, and gst-mxl-rs swallows BaseSink property writes, so the element was still running with `sync=true`/`async=true` (no grains, leaked flow dir)
+- MXL video/audio output: force `mxlsink` `sync=false` `async=false` via the BaseSink C setters after element construction. The UI omits unmodified defaults, and gst-mxl-rs `constructed()` calls `set_sync(true)`, so the element kept BaseSink's deadlock defaults (no grains, leaked flow dir, stop hang). `GST_DEBUG=mxlsink` never logs those properties — they belong to GstBaseSink.
 - Docker MXL: do not use `--ipc=host` — MXL shares grains via the bind-mounted domain tmpfs; `ipc: host` makes `mxlsrc` negotiate caps then emit zero buffers
 
 ## [0.6.5] - 2026-06-12
