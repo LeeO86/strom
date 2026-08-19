@@ -70,6 +70,8 @@ MXL shares grains by mmap of files in the domain directory. `--ipc=host` is not 
 
 `mxlsink` live output needs `sync=false` `async=false` (Strom MXL output blocks now default to that). With both at GStreamer defaults the sink creates the flow directory, receives buffers, writes no grains, and leaks the flow on teardown.
 
+Do not reuse a GStreamer registry from a GPU-less builder. `gst-inspect-1.0 nvcodec` on a GPU host should list encoder/decoder features, not `0 features`. If an older image still ships `/root/.cache/gstreamer-1.0/registry.x86_64.bin`, start with `-e GST_REGISTRY=/tmp/gst-registry.bin` or pull a tag that wipes that cache at the end of the image build.
+
 If `mxlsink` fails with `Failed to load MXL API` and a path under `/tmp/mxl-sdk-build/build/Linux-Clang-Release/`, the plugin is an image built before the runtime-path fix. Pull a newer `ghcr.io/leeo86/strom:mxl` / `ghcr.io/leeo86/strom-full:mxl` tag, or as a one-shot workaround inside the running container:
 
 ```bash

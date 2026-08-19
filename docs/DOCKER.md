@@ -168,6 +168,14 @@ curl http://localhost:8080/health
 docker exec strom gst-inspect-1.0 --version
 ```
 
+Images must not ship `/root/.cache/gstreamer-1.0/registry.*.bin`. That file is
+generated at build time on a GPU-less runner and caches `nvcodec` as 0 features,
+so every container then skips NVENC even with `--gpus all` and a working
+`libcuda`. Delete it (or start with `-e GST_REGISTRY=/tmp/gst-registry.bin`) if
+an older tag still contains it; current GHCR builds wipe it as the last image
+step so the first runtime `gst-inspect` / pipeline rebuilds the registry with
+the GPU that is actually visible.
+
 For GPU issues see [DOCKER_GPU_SETUP.md](DOCKER_GPU_SETUP.md); for segfaults see
 [DEBUGGING_SEGFAULTS_WSL2.md](DEBUGGING_SEGFAULTS_WSL2.md).
 

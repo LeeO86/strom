@@ -336,19 +336,19 @@ RUN set -euo pipefail \
     && rm -rf /opt/mxl-dist \
     && ldconfig \
     && test -e /usr/local/lib/libmxl.so \
-    && gst-inspect-1.0 mxlsrc >/dev/null \
-    && gst-inspect-1.0 mxlsink >/dev/null \
+    && GST_REGISTRY=/tmp/gst-registry-bake.bin gst-inspect-1.0 mxlsrc >/dev/null \
+    && GST_REGISTRY=/tmp/gst-registry-bake.bin gst-inspect-1.0 mxlsink >/dev/null \
     && PLUGIN="/usr/lib/$(uname -m)-linux-gnu/gstreamer-1.0/libgstmxl.so" \
     && if grep -a -q 'Linux-Clang-Release/lib/libmxl.so' "${PLUGIN}"; then \
          echo "error: libgstmxl.so still embeds the MXL build-tree libmxl path" >&2; exit 1; \
        fi \
     && grep -a -q '/usr/local/lib/libmxl.so' "${PLUGIN}" \
     && mkdir -p /tmp/mxl-bake-domain \
-    && gst-launch-1.0 -q videotestsrc num-buffers=1 \
+    && GST_REGISTRY=/tmp/gst-registry-bake.bin gst-launch-1.0 -q videotestsrc num-buffers=1 \
          ! videoconvert \
          ! video/x-raw,format=v210,width=1280,height=720,framerate=25/1 \
          ! mxlsink domain=/tmp/mxl-bake-domain flow-id=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee sync=false async=false \
-    && rm -rf /tmp/mxl-bake-domain
+    && rm -rf /tmp/mxl-bake-domain /tmp/gst-registry-bake.bin /root/.cache/gstreamer-1.0
 
 # Copy setup scripts for optional host/container configuration (NDI, NVIDIA, etc.)
 COPY scripts/setup /app/scripts/setup
@@ -381,6 +381,12 @@ RUN mkdir -p /data
 # Copy entrypoint script that starts dbus/avahi for NDI discovery
 COPY docker/strom/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Do not ship a GStreamer registry from this GPU-less builder. gst-inspect /
+# gst-launch during the bake cache nvcodec as 0 features; every container then
+# skips NVENC even when --gpus all and libcuda work. Runtime regenerates the
+# registry on first use with whatever GPU is actually visible.
+RUN rm -rf /root/.cache/gstreamer-1.0 /tmp/gst-registry-bake.bin
 
 # Expose the server port
 EXPOSE 8080

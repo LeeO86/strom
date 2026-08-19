@@ -49,12 +49,19 @@ ENV GST_CEF_SUBPROCESS_PATH=/usr/local/lib/gstreamer-1.0/gstcefsubprocess
 # Fail the image build if the CEF plugin did not land. mxlsrc/mxlsink are not
 # checked here — the Docker Hub base image does not bake MXL; the GHCR job
 # verifies those after pushing strom-full.
-RUN gst-inspect-1.0 cefsrc >/dev/null \
-    && echo "gstcefsrc plugin verified"
+#
+# Isolate GST_REGISTRY so this GPU-less probe cannot cache nvcodec as 0
+# features into /root/.cache/gstreamer-1.0 (inherited from the base image
+# and refreshed here). Wipe the cache again after COPY so it is the last
+# filesystem change in this image.
+RUN GST_REGISTRY=/tmp/gst-registry-bake.bin gst-inspect-1.0 cefsrc >/dev/null \
+    && echo "gstcefsrc plugin verified" \
+    && rm -rf /tmp/gst-registry-bake.bin /root/.cache/gstreamer-1.0
 
 # Copy entrypoint script that auto-starts Xvfb for headless CEF rendering
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh \
+    && rm -rf /root/.cache/gstreamer-1.0 /tmp/gst-registry-bake.bin
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/app/strom"]
