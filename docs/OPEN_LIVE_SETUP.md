@@ -201,6 +201,12 @@ Notes:
   `ghcr.io/leeo86/strom-full:mxl` when the production needs both MXL and HTML
   graphics.
 - To terminate TLS in Strom itself, mount your certificates and set `STROM_TLS_CERT` / `STROM_TLS_KEY`. See [README — HTTPS/TLS](https://github.com/Eyevinn/strom#httpstls).
+- For CEF/HTML sources that use an internal CA, bind-mount the CA PEM/CRT into
+  `/usr/local/share/ca-certificates` (or `/etc/strom/ca-certificates`). To add
+  Chromium flags without replacing the image default, set
+  `GST_CEF_CHROME_EXTRA_FLAGS_APPEND` (for example `ignore-certificate-errors`).
+  A compose `GST_CEF_CHROME_EXTRA_FLAGS=` value is honoured as a full override;
+  the entrypoint no longer overwrites it.
 
 Bring it up:
 
