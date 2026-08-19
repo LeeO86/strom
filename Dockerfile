@@ -337,7 +337,18 @@ RUN set -euo pipefail \
     && ldconfig \
     && test -e /usr/local/lib/libmxl.so \
     && gst-inspect-1.0 mxlsrc >/dev/null \
-    && gst-inspect-1.0 mxlsink >/dev/null
+    && gst-inspect-1.0 mxlsink >/dev/null \
+    && PLUGIN="/usr/lib/$(uname -m)-linux-gnu/gstreamer-1.0/libgstmxl.so" \
+    && if grep -a -q 'Linux-Clang-Release/lib/libmxl.so' "${PLUGIN}"; then \
+         echo "error: libgstmxl.so still embeds the MXL build-tree libmxl path" >&2; exit 1; \
+       fi \
+    && grep -a -q '/usr/local/lib/libmxl.so' "${PLUGIN}" \
+    && mkdir -p /tmp/mxl-bake-domain \
+    && gst-launch-1.0 -q videotestsrc num-buffers=1 \
+         ! videoconvert \
+         ! video/x-raw,format=v210,width=1280,height=720,framerate=25/1 \
+         ! mxlsink domain=/tmp/mxl-bake-domain flow-id=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee \
+    && rm -rf /tmp/mxl-bake-domain
 
 # Copy setup scripts for optional host/container configuration (NDI, NVIDIA, etc.)
 COPY scripts/setup /app/scripts/setup

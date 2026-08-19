@@ -119,6 +119,37 @@ fi
 export PKG_CONFIG_PATH="${LIBDIR}/pkgconfig:${PKG_CONFIG_PATH:-}"
 export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
 
+# gst-mxl-rs --features mxl/mxl-not-built compiles get_mxl_so_path() as
+# $MXL_BUILD_DIR/lib/libmxl.so assembled at runtime. rust/mxl/build.rs sets
+# MXL_BUILD_DIR to <repo>/build/Linux-Clang-Release, which is
+# /tmp/mxl-sdk-build/... in Docker and does not exist in the runtime image.
+# Bake the installed library path as a single string so mxlsink dlopens
+# /usr/local/lib/libmxl.so (the copy we install into the runtime image).
+python3 - "${WORK_DIR}/rust/mxl/src/config.rs" "${LIBDIR}/libmxl.so" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+so_path = sys.argv[2]
+text = path.read_text()
+pat = re.compile(
+    r'#\[cfg\(feature = "mxl-not-built"\)\]\s*'
+    r'pub fn get_mxl_so_path\(\) -> std::path::PathBuf \{.*?\n\}',
+    re.DOTALL,
+)
+new = (
+    '#[cfg(feature = "mxl-not-built")]\n'
+    'pub fn get_mxl_so_path() -> std::path::PathBuf {\n'
+    f'    std::path::PathBuf::from("{so_path}")\n'
+    '}'
+)
+if not pat.search(text):
+    raise SystemExit(f"error: {path} mxl-not-built get_mxl_so_path() did not match")
+path.write_text(pat.sub(new, text, count=1))
+print(f"patched {path}: get_mxl_so_path -> {so_path}")
+PY
+
 echo "==> Building gst-mxl-rs plugin"
 if [[ ! -d "${WORK_DIR}/rust/gst-mxl-rs" ]]; then
   echo "error: rust/gst-mxl-rs missing on ${MXL_REF}" >&2
@@ -133,6 +164,14 @@ PLUGIN_SRC="${WORK_DIR}/rust/target/release/libgstmxl.so"
 if [[ ! -f "${PLUGIN_SRC}" ]]; then
   echo "error: libgstmxl.so not found after cargo build" >&2
   find "${WORK_DIR}/rust/target" -name 'libgstmxl*' || true
+  exit 1
+fi
+if grep -a -q 'Linux-Clang-Release/lib/libmxl.so' "${PLUGIN_SRC}"; then
+  echo "error: libgstmxl.so still embeds the CMake-preset libmxl path" >&2
+  exit 1
+fi
+if ! grep -a -q "${LIBDIR}/libmxl.so" "${PLUGIN_SRC}"; then
+  echo "error: libgstmxl.so does not embed ${LIBDIR}/libmxl.so" >&2
   exit 1
 fi
 

@@ -63,6 +63,13 @@ docker run -d --name strom \
 
 `--ipc=host` plus the `/dev/shm/mxl` bind is what lets the container see grains published by host media functions.
 
+If `mxlsink` fails with `Failed to load MXL API` and a path under `/tmp/mxl-sdk-build/build/Linux-Clang-Release/`, the plugin is an image built before the runtime-path fix. Pull a newer `ghcr.io/leeo86/strom:mxl` / `ghcr.io/leeo86/strom-full:mxl` tag, or as a one-shot workaround inside the running container:
+
+```bash
+mkdir -p /tmp/mxl-sdk-build/build/Linux-Clang-Release/lib
+ln -sf /usr/local/lib/libmxl.so /tmp/mxl-sdk-build/build/Linux-Clang-Release/lib/libmxl.so
+```
+
 To build the same image locally:
 
 ```bash
