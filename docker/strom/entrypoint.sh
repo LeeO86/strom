@@ -14,5 +14,9 @@ dbus-daemon --system 2>/dev/null
 rm -f /run/avahi-daemon/pid
 avahi-daemon -D 2>/dev/null
 
-# Execute the command (defaults to /app/strom via CMD)
+# Replace this shell with the container command so `docker run IMAGE CMD`
+# actually runs CMD as PID 1. Empty args fall back to the image default.
+if [ "$#" -eq 0 ]; then
+    set -- /app/strom
+fi
 exec "$@"

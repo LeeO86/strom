@@ -91,5 +91,9 @@ fi
 # Wait briefly for Xvfb to initialize
 sleep 0.5
 
-# Execute the command (defaults to /app/strom via CMD)
+# Replace this shell with the container command so `docker run IMAGE CMD`
+# actually runs CMD as PID 1. Empty args fall back to the image default.
+if [ "$#" -eq 0 ]; then
+    set -- /app/strom
+fi
 exec "$@"
