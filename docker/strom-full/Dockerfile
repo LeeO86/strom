@@ -24,10 +24,13 @@ ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install xvfb for headless X11 and download gstcefsrc
+# Install xvfb for headless X11, NSS tools for importing internal CAs into CEF,
+# and download gstcefsrc
 RUN apt-get update && apt-get install -y \
     curl \
     xvfb \
+    libnss3-tools \
+    ca-certificates \
     && curl -L "https://github.com/Eyevinn/strom/releases/download/gstcefsrc-deps/gstcefsrc-${GSTCEFSRC_VERSION}-linux-${TARGETARCH}.tar.gz" \
     | tar -xz -C /usr/local/ \
     && apt-get remove -y curl \

@@ -19,6 +19,81 @@
 # Requires host + docker run:
 #   --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all
 #   -v /usr/share/vulkan/icd.d/nvidia_icd.json:/usr/share/vulkan/icd.d/nvidia_icd.json:ro
+#
+# Chromium flags:
+# Image defaults are applied only when GST_CEF_CHROME_EXTRA_FLAGS is unset, so
+# compose can override the full list. GST_CEF_CHROME_EXTRA_FLAGS_APPEND appends
+# extra flags (e.g. ignore-certificate-errors) without replacing the default.
+#
+# Internal CAs: bind-mount PEM/CRT files into /usr/local/share/ca-certificates
+# (and/or /etc/strom/ca-certificates). The entrypoint runs update-ca-certificates
+# and imports them into /root/.pki/nssdb for CEF/Chromium.
+
+CEF_FLAGS_GPU="no-sandbox,use-gl=angle,use-angle=vulkan,enable-gpu-rasterization,ignore-gpu-blocklist,enable-zero-copy,disable-features=BackgroundTracing,no-periodic-tasks,force-fieldtrials=,disable-field-trial-config,disable-breakpad,disable-crash-reporter,disable-dev-shm-usage,disable-background-networking,disable-component-update,enable-logging=stderr"
+CEF_FLAGS_SOFTWARE="no-sandbox,disable-gpu,disable-gpu-compositing,use-gl=disabled,disable-features=BackgroundTracing,no-periodic-tasks,force-fieldtrials=,disable-field-trial-config,disable-breakpad,disable-crash-reporter,disable-dev-shm-usage,disable-background-networking,disable-component-update,enable-logging=stderr"
+
+# Apply image-default Chromium flags only when the operator has not already
+# set GST_CEF_CHROME_EXTRA_FLAGS. APPEND is always concatenated when set.
+apply_cef_chrome_flags() {
+    local image_default="$1"
+    if [ -z "${GST_CEF_CHROME_EXTRA_FLAGS+x}" ]; then
+        export GST_CEF_CHROME_EXTRA_FLAGS="$image_default"
+    else
+        echo "Keeping GST_CEF_CHROME_EXTRA_FLAGS from the environment"
+    fi
+    if [ -n "${GST_CEF_CHROME_EXTRA_FLAGS_APPEND:-}" ]; then
+        if [ -n "${GST_CEF_CHROME_EXTRA_FLAGS:-}" ]; then
+            export GST_CEF_CHROME_EXTRA_FLAGS="${GST_CEF_CHROME_EXTRA_FLAGS},${GST_CEF_CHROME_EXTRA_FLAGS_APPEND}"
+        else
+            export GST_CEF_CHROME_EXTRA_FLAGS="${GST_CEF_CHROME_EXTRA_FLAGS_APPEND}"
+        fi
+        echo "Appended GST_CEF_CHROME_EXTRA_FLAGS_APPEND"
+    fi
+}
+
+# Trust extra CAs for OpenSSL (update-ca-certificates) and CEF (NSS db).
+import_trusted_cas() {
+    if command -v update-ca-certificates >/dev/null 2>&1; then
+        update-ca-certificates >/dev/null 2>&1 || true
+    fi
+
+    if ! command -v certutil >/dev/null 2>&1; then
+        echo "WARNING: certutil not found — extra CAs will not be imported into the CEF NSS database"
+        return 0
+    fi
+
+    local nssdb="${HOME:-/root}/.pki/nssdb"
+    mkdir -p "$nssdb"
+    if [ ! -f "$nssdb/cert9.db" ]; then
+        if ! certutil -N -d "sql:$nssdb" --empty-password >/dev/null 2>&1; then
+            echo "WARNING: failed to initialise NSS database at $nssdb"
+            return 0
+        fi
+    fi
+
+    local dir cert nick imported=0
+    for dir in /usr/local/share/ca-certificates /etc/strom/ca-certificates; do
+        [ -d "$dir" ] || continue
+        while IFS= read -r -d '' cert; do
+            nick="$(basename "$cert")"
+            nick="${nick%.*}"
+            certutil -D -n "$nick" -d "sql:$nssdb" >/dev/null 2>&1 || true
+            if certutil -A -n "$nick" -t "C,," -i "$cert" -d "sql:$nssdb" >/dev/null 2>&1; then
+                imported=$((imported + 1))
+            else
+                echo "WARNING: failed to import CA $cert into NSS"
+            fi
+        done < <(find "$dir" -type f \( -name '*.crt' -o -name '*.pem' \) -print0 2>/dev/null)
+    done
+    if [ "$imported" -gt 0 ]; then
+        echo "Imported $imported CA certificate(s) into $nssdb for CEF"
+    fi
+}
+
+# Sourced by tests: define helpers without starting Xvfb / exec.
+if [ "${STROM_ENTRYPOINT_HELPERS_ONLY:-}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # Start dbus and avahi-daemon for NDI network discovery
 # NDI uses mDNS (Avahi) to discover streams on the local network.
@@ -45,7 +120,7 @@ if nvidia-smi > /dev/null 2>&1; then HAS_GPU=yes; fi
 if [ "${STROM_CEF_GPU:-0}" = "1" ] && [ "$HAS_GPU" = "yes" ]; then
     echo "CEF GPU mode enabled (STROM_CEF_GPU=1) - ANGLE/Vulkan on NVIDIA"
     export GST_CEF_GPU_ENABLED=set
-    export GST_CEF_CHROME_EXTRA_FLAGS="no-sandbox,use-gl=angle,use-angle=vulkan,enable-gpu-rasterization,ignore-gpu-blocklist,enable-zero-copy,disable-features=BackgroundTracing,no-periodic-tasks,force-fieldtrials=,disable-field-trial-config,disable-breakpad,disable-crash-reporter,disable-dev-shm-usage,disable-background-networking,disable-component-update,enable-logging=stderr"
+    apply_cef_chrome_flags "$CEF_FLAGS_GPU"
 elif [ "$HAS_GPU" = "yes" ]; then
     if [ "${STROM_CEF_GPU:-0}" = "1" ]; then
         echo "WARNING: STROM_CEF_GPU=1 but nvidia-smi unavailable - falling back to software"
@@ -55,7 +130,7 @@ elif [ "$HAS_GPU" = "yes" ]; then
     # Fully isolate CEF from GPU to prevent SharedImageManager crashes.
     # disable-gpu alone is not enough - Chromium still starts a GPU subprocess that
     # probes the NVIDIA driver and initializes SharedImage mailboxes.
-    export GST_CEF_CHROME_EXTRA_FLAGS="no-sandbox,disable-gpu,disable-gpu-compositing,use-gl=disabled,disable-features=BackgroundTracing,no-periodic-tasks,force-fieldtrials=,disable-field-trial-config,disable-breakpad,disable-crash-reporter,disable-dev-shm-usage,disable-background-networking,disable-component-update,enable-logging=stderr"
+    apply_cef_chrome_flags "$CEF_FLAGS_SOFTWARE"
 else
     if [ "${STROM_CEF_GPU:-0}" = "1" ]; then
         echo "WARNING: STROM_CEF_GPU=1 but no GPU visible in container (pass --gpus all) - falling back to software"
@@ -66,8 +141,10 @@ else
     # Without GPU, egl-device will fail since there's no EGL device available
     export GST_GL_WINDOW=x11
     export GST_GL_PLATFORM=glx
-    export GST_CEF_CHROME_EXTRA_FLAGS="no-sandbox,disable-gpu,disable-gpu-compositing,use-gl=disabled,disable-features=BackgroundTracing,no-periodic-tasks,force-fieldtrials=,disable-field-trial-config,disable-breakpad,disable-crash-reporter,disable-dev-shm-usage,disable-background-networking,disable-component-update,enable-logging=stderr"
+    apply_cef_chrome_flags "$CEF_FLAGS_SOFTWARE"
 fi
+
+import_trusted_cas
 
 # Set CEF cache location to avoid singleton behavior warning
 # Clean up stale CEF cache/locks from previous runs/crashes

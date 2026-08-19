@@ -144,6 +144,27 @@ The entrypoint script automatically:
 
 No manual configuration is needed - just run the container and use `cefsrc` in your pipelines.
 
+### Chromium flags and internal CAs
+
+The entrypoint applies a safe default `GST_CEF_CHROME_EXTRA_FLAGS` **only when that
+variable is unset**, so a compose `environment:` entry is not overwritten. To add
+flags without replacing the default list (for example an internal-CA site):
+
+```yaml
+environment:
+  - GST_CEF_CHROME_EXTRA_FLAGS_APPEND=ignore-certificate-errors
+```
+
+Prefer trusting the CA over ignoring errors. Bind-mount PEM/CRT files and the
+entrypoint will run `update-ca-certificates` and import them into
+`/root/.pki/nssdb` for CEF:
+
+```yaml
+volumes:
+  - ./internal-ca:/usr/local/share/ca-certificates:ro
+  # or: - ./internal-ca:/etc/strom/ca-certificates:ro
+```
+
 ### GPU mode (opt-in, experimental)
 
 CEF can be routed through the host NVIDIA GPU via ANGLE/Vulkan by setting
