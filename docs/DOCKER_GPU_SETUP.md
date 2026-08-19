@@ -244,6 +244,11 @@ docker run --rm --gpus all \
   eyevinntechnology/strom:latest \
   gst-inspect-1.0 nvh264enc
 
+# GHCR MXL images: nvcodec must list encoder/decoder features (not 0).
+# If you see "CUDA library libcuda.so.1 was not found" with a working driver,
+# the image baked a GPU-less GStreamer registry — pull a newer tag or
+# `docker run ... -e GST_REGISTRY=/tmp/gst-registry.bin`.
+
 # Test full pipeline
 docker run --rm --gpus all \
   eyevinntechnology/strom:latest \

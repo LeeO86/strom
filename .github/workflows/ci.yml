@@ -658,6 +658,19 @@ jobs:
             aws_access_key_id=${{ secrets.SCCACHE_S3_ACCESS_KEY_ID }}
             aws_secret_access_key=${{ secrets.SCCACHE_S3_SECRET_ACCESS_KEY }}
 
+      - name: Verify registry wipe and entrypoint exec
+        run: |
+          IMAGE="${{ steps.image.outputs.name }}:mxl-${{ steps.sha.outputs.short }}"
+          docker pull "$IMAGE"
+          docker run --rm --entrypoint bash "$IMAGE" -c '
+            if ls /root/.cache/gstreamer-1.0/registry*.bin >/dev/null 2>&1; then
+              echo "error: baked GStreamer registry must not ship in the image" >&2
+              ls -la /root/.cache/gstreamer-1.0/ >&2
+              exit 1
+            fi
+          '
+          docker run --rm "$IMAGE" echo ENTRYPOINT_OK | grep -Fxq ENTRYPOINT_OK
+
       - name: Summary
         run: |
           {
@@ -735,13 +748,21 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Verify mxlsrc, mxlsink, and cefsrc
+      - name: Verify mxlsrc, mxlsink, cefsrc, registry wipe, and entrypoint exec
         run: |
           IMAGE="${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}"
           docker pull "$IMAGE"
           docker run --rm --entrypoint gst-inspect-1.0 "$IMAGE" mxlsrc
           docker run --rm --entrypoint gst-inspect-1.0 "$IMAGE" mxlsink
           docker run --rm --entrypoint gst-inspect-1.0 "$IMAGE" cefsrc
+          docker run --rm --entrypoint bash "$IMAGE" -c '
+            if ls /root/.cache/gstreamer-1.0/registry*.bin >/dev/null 2>&1; then
+              echo "error: baked GStreamer registry must not ship in the image" >&2
+              ls -la /root/.cache/gstreamer-1.0/ >&2
+              exit 1
+            fi
+          '
+          docker run --rm "$IMAGE" echo ENTRYPOINT_OK | grep -Fxq ENTRYPOINT_OK
 
       - name: Summary
         run: |
