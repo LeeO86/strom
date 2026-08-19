@@ -28,6 +28,8 @@ Two multi-arch images are published on Docker Hub:
 - **`eyevinntechnology/strom-full:latest`** — recommended default. Bundles CEF/Chromium so HTML pages can be used as video sources (graphics, lower-thirds, scoreboards, web-based overlays). See [HTML_RENDER.md on GitHub](https://github.com/Eyevinn/strom/blob/main/docs/HTML_RENDER.md).
 - **`eyevinntechnology/strom:latest`** — smaller image without CEF/HTML rendering. Use this if you do not need browser-rendered graphics and want a leaner footprint.
 
+This fork also publishes MXL-enabled images to GHCR. Use **`ghcr.io/leeo86/strom-full:mxl`** when you need both MXL and HTML graphics (`cefsrc`); use **`ghcr.io/leeo86/strom:mxl`** when you do not need CEF. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+
 Minimal run:
 
 ```bash

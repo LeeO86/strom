@@ -8,7 +8,7 @@ All notable changes to the Strom GStreamer Flow Engine project.
 - MXL video and audio input/output blocks (cargo feature `mxl`), with a `backend` property (`auto` / `gpu` / `cpu`) on the video pair
 - `v210glupload` / `v210gldownload` GStreamer elements: GPU unpack/pack of v210 via an RGB10A2 proxy texture (8-bit RGBA mixer path — not a bit-exact 10-bit round-trip)
 - Host/container setup notes under `scripts/setup/mxl/`
-- CI publishes an amd64 Docker image with the MXL SDK (`libmxl.so` + `libgstmxl.so`) baked in to GHCR (`:mxl`, `:mxl-<sha>`, `:pr-N`)
+- CI publishes amd64 Docker images with the MXL SDK (`libmxl.so` + `libgstmxl.so`) baked in to GHCR: `ghcr.io/leeo86/strom` (base) and `ghcr.io/leeo86/strom-full` (base + CEF/Xvfb for HTML graphics), tagged `:mxl`, `:mxl-<sha>`, `:pr-N`
 
 ### Fixed
 - Frontend: suffix egui stroke and plot widths as `f32` so rustc 1.97 `-D warnings` no longer fails on the `f32: From<f64>` fallback ([rust#154024](https://github.com/rust-lang/rust/issues/154024))

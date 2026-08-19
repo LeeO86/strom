@@ -597,6 +597,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      short_sha: ${{ steps.sha.outputs.short }}
     steps:
       - uses: actions/checkout@v6
 
@@ -612,6 +615,10 @@ jobs:
       - name: Image name
         id: image
         run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -662,6 +669,93 @@ jobs:
             echo "docker pull ${{ steps.image.outputs.name }}:mxl"
             echo "docker pull ${{ steps.image.outputs.name }}:mxl-${GITHUB_SHA::7}"
             echo '```'
+            echo ""
+            echo "The first push creates a private package. Either \`docker login ghcr.io\` with a PAT (read:packages) or set the package public under GitHub → Packages."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # strom-full = MXL-enabled GHCR base + CEF (gstcefsrc) + Xvfb.
+  # Required for Open Live `html` graphics sources. Layers on the just-pushed
+  # mxl-<sha> tag so this job never races the moving :mxl tag.
+  docker-ghcr-full:
+    name: Docker full (GHCR)
+    needs: docker-ghcr
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Image names
+        id: image
+        run: |
+          echo "base=${{ needs.docker-ghcr.outputs.image }}" >> "$GITHUB_OUTPUT"
+          echo "name=${{ needs.docker-ghcr.outputs.image }}-full" >> "$GITHUB_OUTPUT"
+          echo "tag=mxl-${{ needs.docker-ghcr.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta (strom-full)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=mxl
+            type=sha,prefix=mxl-,format=short
+            type=ref,event=pr
+
+      - name: Build and push strom-full
+        uses: docker/build-push-action@v7
+        env:
+          BUILDKIT_PROGRESS: plain
+        with:
+          context: docker/strom-full
+          file: docker/strom-full/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BASE_IMAGE=${{ steps.image.outputs.base }}
+            VERSION=${{ steps.image.outputs.tag }}
+            TARGETARCH=amd64
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Verify mxlsrc, mxlsink, and cefsrc
+        run: |
+          IMAGE="${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}"
+          docker pull "$IMAGE"
+          docker run --rm --entrypoint gst-inspect-1.0 "$IMAGE" mxlsrc
+          docker run --rm --entrypoint gst-inspect-1.0 "$IMAGE" mxlsink
+          docker run --rm --entrypoint gst-inspect-1.0 "$IMAGE" cefsrc
+
+      - name: Summary
+        run: |
+          {
+            echo "## GHCR strom-full image"
+            echo ""
+            echo "linux/amd64, MXL-enabled base + CEF (\`gstcefsrc\`) + Xvfb."
+            echo ""
+            echo '```bash'
+            echo "docker pull ${{ steps.image.outputs.name }}:mxl"
+            echo "docker pull ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}"
+            echo '```'
+            echo ""
+            echo "Use this image when Open Live HTML graphics sources need CEF. Bind \`/dev/shm/mxl\` and use \`--gpus all\` + \`--ipc=host\` the same way as the base MXL image."
             echo ""
             echo "The first push creates a private package. Either \`docker login ghcr.io\` with a PAT (read:packages) or set the package public under GitHub → Packages."
           } >> "$GITHUB_STEP_SUMMARY"
