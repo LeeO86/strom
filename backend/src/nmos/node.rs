@@ -1341,28 +1341,44 @@ fn receiver_caps(kind: EndpointKind) -> (&'static str, Value) {
 
 fn interfaces_json() -> Value {
     let discovered = crate::network::discover_interfaces();
-    let mut rows: Vec<Value> = discovered
+    let mut chosen: Vec<_> = discovered
         .interfaces
         .iter()
         .filter(|iface| iface.is_up && !iface.is_loopback)
-        .map(|iface| {
-            json!({
+        .collect();
+    if chosen.is_empty() {
+        chosen = discovered
+            .interfaces
+            .iter()
+            .filter(|iface| iface.is_loopback)
+            .collect();
+    }
+    // IS-04 requires port_id to be a MAC address. Omit attached_network_device
+    // when LLDP data is absent; null is not a valid object there.
+    let rows = chosen
+        .into_iter()
+        .filter_map(|iface| {
+            let port_id = nmos_mac(iface.mac_address.as_deref())?;
+            Some(json!({
                 "name": iface.name,
                 "chassis_id": Value::Null,
-                "port_id": iface.name,
-                "attached_network_device": Value::Null
-            })
+                "port_id": port_id
+            }))
         })
         .collect();
-    if rows.is_empty() {
-        rows.push(json!({
-            "name": "lo",
-            "chassis_id": Value::Null,
-            "port_id": "lo",
-            "attached_network_device": Value::Null
-        }));
-    }
     Value::Array(rows)
+}
+
+/// IS-04 `port_id`: six lowercase hex octets separated by hyphens.
+fn nmos_mac(mac: Option<&str>) -> Option<String> {
+    let mac = mac?;
+    let bytes = mac
+        .split(|c: char| matches!(c, ':' | '-' | '.'))
+        .filter(|part| !part.is_empty())
+        .map(|part| u8::from_str_radix(part, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    let [a, b, c, d, e, f] = bytes.try_into().ok()?;
+    Some(format!("{a:02x}-{b:02x}-{c:02x}-{d:02x}-{e:02x}-{f:02x}"))
 }
 
 fn uuid_field(value: &Value) -> Uuid {
@@ -1442,6 +1458,25 @@ fn hostname_string() -> String {
         .and_then(|name| name.into_string().ok())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "strom".to_string())
+}
+
+#[cfg(test)]
+mod interface_tests {
+    use super::nmos_mac;
+
+    #[test]
+    fn mac_uses_is04_hyphen_form() {
+        assert_eq!(
+            nmos_mac(Some("AA:BB:CC:DD:EE:FF")).as_deref(),
+            Some("aa-bb-cc-dd-ee-ff")
+        );
+        assert_eq!(
+            nmos_mac(Some("aa-bb-cc-dd-ee-ff")).as_deref(),
+            Some("aa-bb-cc-dd-ee-ff")
+        );
+        assert!(nmos_mac(None).is_none());
+        assert!(nmos_mac(Some("enp0s5")).is_none());
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

@@ -233,6 +233,7 @@ mod tests {
         let (node, _) = node_with(vec![video_flow()], vec![dir.path().to_path_buf()]);
         let app = router(node);
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/node/v1.3/senders")
@@ -244,6 +245,29 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let senders = body_json(response).await;
         let sender = &senders.as_array().unwrap()[0];
+        let node_self = app
+            .oneshot(
+                Request::builder()
+                    .uri("/node/v1.3/self")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let node_self = body_json(node_self).await;
+        for iface in node_self["interfaces"].as_array().unwrap() {
+            assert!(iface.get("attached_network_device").is_none());
+            let port_id = iface["port_id"].as_str().unwrap();
+            let octets: Vec<&str> = port_id.split('-').collect();
+            assert_eq!(octets.len(), 6);
+            assert!(octets.iter().all(|octet| {
+                octet.len() == 2
+                    && octet
+                        .chars()
+                        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+            }));
+        }
+
         assert_eq!(sender["transport"], "urn:x-nmos:transport:mxl");
         assert_eq!(sender["interface_bindings"], serde_json::json!([]));
         assert!(sender["manifest_href"].is_null());
