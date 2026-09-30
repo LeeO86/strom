@@ -372,7 +372,21 @@ jobs:
             echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum -c
           fi
           sudo tar -xJ -C /usr/local -f /tmp/zig.tar.xz
-          sudo ln -sf /usr/local/zig-linux-aarch64-${ZIG_VERSION}/zig /usr/local/bin/zig
+          # rustc >= 1.98 passes -Wl,--fix-cortex-a53-843419 for aarch64.
+          # Zig 0.13 and cargo-zigbuild 0.22.3 reject that flag.
+          sudo ln -sfn /usr/local/zig-linux-aarch64-${ZIG_VERSION}/zig /usr/local/bin/zig.bin
+          sudo tee /usr/local/bin/zig >/dev/null << 'EOF'
+          #!/bin/bash
+          args=()
+          for arg in "$@"; do
+            case "$arg" in
+              -Wl,--fix-cortex-a53-843419|--fix-cortex-a53-843419) ;;
+              *) args+=("$arg") ;;
+            esac
+          done
+          exec /usr/local/bin/zig.bin "${args[@]}"
+          EOF
+          sudo chmod 0755 /usr/local/bin/zig
 
           CZB_VERSION="0.22.3"
           CZB_SHA256="6f86a78cf8be222ac08a68a944ffd8a1ef9d455c504097f0ffbd8bcfbe434a55"

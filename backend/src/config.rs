@@ -20,6 +20,8 @@ struct ConfigFile {
     logging: LoggingConfig,
     #[serde(default)]
     discovery: DiscoveryConfig,
+    #[serde(default)]
+    nmos: NmosFile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -116,6 +118,38 @@ fn default_port() -> u16 {
     strom_types::DEFAULT_PORT
 }
 
+/// `[nmos]` table. Domain paths default to `/dev/shm/mxl` when the key is omitted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NmosFile {
+    #[serde(default = "default_nmos_enabled")]
+    enabled: bool,
+    #[serde(default)]
+    registry: Option<String>,
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    /// `None` means the key was omitted and the built-in default path is used.
+    #[serde(default)]
+    domains: Option<Vec<String>>,
+}
+
+impl Default for NmosFile {
+    fn default() -> Self {
+        Self {
+            enabled: default_nmos_enabled(),
+            registry: None,
+            host: None,
+            label: None,
+            domains: None,
+        }
+    }
+}
+
+fn default_nmos_enabled() -> bool {
+    true
+}
+
 /// Application configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -150,6 +184,16 @@ pub struct Config {
     pub tls_cert: Option<PathBuf>,
     /// Path to TLS private key file (PEM format). Enables HTTPS when paired with tls_cert.
     pub tls_key: Option<PathBuf>,
+    /// Announce and register an NMOS node for MXL flows.
+    pub nmos_enabled: bool,
+    /// IS-04 registry base URL, for example `http://192.0.2.10:3210`.
+    pub nmos_registry: Option<String>,
+    /// Host advertised in the Node API. Empty selects a non-loopback IPv4 address.
+    pub nmos_host: Option<String>,
+    /// Node label. Defaults to `Strom`.
+    pub nmos_label: String,
+    /// MXL domain directories that contain `domain_def.json`.
+    pub nmos_domains: Vec<PathBuf>,
 }
 
 impl Config {
@@ -191,6 +235,7 @@ impl Config {
             storage: StorageConfig::default(),
             logging: LoggingConfig::default(),
             discovery: DiscoveryConfig::default(),
+            nmos: NmosFile::default(),
         }));
 
         // 2. Merge user config file if it exists
@@ -238,6 +283,14 @@ impl Config {
         }
         if let Ok(key) = env::var("STROM_TLS_KEY") {
             figment = figment.merge(Serialized::default("server.tls_key", PathBuf::from(key)));
+        }
+        if let Ok(domains) = env::var("STROM_NMOS_DOMAINS") {
+            let domains: Vec<String> = domains
+                .split(',')
+                .map(|entry| entry.trim().to_string())
+                .filter(|entry| !entry.is_empty())
+                .collect();
+            figment = figment.merge(Serialized::default("nmos.domains", domains));
         }
 
         // 5. Merge CLI arguments (highest priority)
@@ -292,7 +345,43 @@ impl Config {
             cors_allowed_origins: config_file.server.cors_allowed_origins,
             tls_cert: config_file.server.tls_cert,
             tls_key: config_file.server.tls_key,
+            nmos_enabled: config_file.nmos.enabled,
+            nmos_registry: config_file.nmos.registry,
+            nmos_host: config_file.nmos.host,
+            nmos_label: config_file
+                .nmos
+                .label
+                .filter(|label| !label.is_empty())
+                .unwrap_or_else(|| "Strom".to_string()),
+            nmos_domains: config_file
+                .nmos
+                .domains
+                .unwrap_or_else(|| vec![strom_types::mxl::DEFAULT_MXL_DOMAIN.to_string()])
+                .into_iter()
+                .map(PathBuf::from)
+                .collect(),
         })
+    }
+
+    /// NMOS node settings, including the persisted node id next to the flows file.
+    pub fn nmos_settings(&self) -> crate::nmos::NmosSettings {
+        let id_path = self
+            .flows_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("nmos-node.id");
+        crate::nmos::NmosSettings {
+            enabled: self.nmos_enabled,
+            node_id: None,
+            id_path: Some(id_path),
+            label: self.nmos_label.clone(),
+            port: self.port,
+            host: self.nmos_host.clone(),
+            https: self.tls_cert.is_some() && self.tls_key.is_some(),
+            registry: self.nmos_registry.clone(),
+            domain_paths: self.nmos_domains.clone(),
+            heartbeat_secs: 5,
+        }
     }
 
     /// Returns TLS config paths if both cert and key are provided.
@@ -340,6 +429,11 @@ impl Config {
             cors_allowed_origins: Vec::new(),
             tls_cert: None,
             tls_key: None,
+            nmos_enabled: true,
+            nmos_registry: None,
+            nmos_host: None,
+            nmos_label: "Strom".to_string(),
+            nmos_domains: vec![PathBuf::from(strom_types::mxl::DEFAULT_MXL_DOMAIN)],
         })
     }
 
@@ -389,6 +483,11 @@ impl Default for Config {
                 cors_allowed_origins: Vec::new(),
                 tls_cert: None,
                 tls_key: None,
+                nmos_enabled: true,
+                nmos_registry: None,
+                nmos_host: None,
+                nmos_label: "Strom".to_string(),
+                nmos_domains: vec![PathBuf::from(strom_types::mxl::DEFAULT_MXL_DOMAIN)],
             }
         })
     }

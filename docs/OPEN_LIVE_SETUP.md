@@ -200,6 +200,7 @@ Notes:
   zero buffers, so WHEP never binds and `/whep/<id>` returns 502. Use
   `ghcr.io/leeo86/strom-full:mxl` when the production needs both MXL and HTML
   graphics.
+- Each MXL domain directory needs a `domain_def.json` (`id`, `label`, `description`, `tags`) so NMOS can name the domain. Point `STROM_NMOS_REGISTRY` at an IS-04 registry (for example nmos-cpp). See [NMOS_MXL.md](NMOS_MXL.md).
 - To terminate TLS in Strom itself, mount your certificates and set `STROM_TLS_CERT` / `STROM_TLS_KEY`. See [README — HTTPS/TLS](https://github.com/Eyevinn/strom#httpstls).
 - For CEF/HTML sources that use an internal CA, bind-mount the CA PEM/CRT into
   `/usr/local/share/ca-certificates` (or `/etc/strom/ca-certificates`). To add
@@ -223,7 +224,7 @@ Strom exposes a single HTTP/WebSocket endpoint:
 
 | Port    | Protocol  | Purpose                                                     |
 |---------|-----------|-------------------------------------------------------------|
-| `8080`  | HTTP(S)   | Web UI, REST API (`/api/...`), WebSocket (`/api/ws`), SSE (`/api/events`), MCP (`/api/mcp`), OpenAPI (`/swagger-ui`) |
+| `8080`  | HTTP(S)   | Web UI, REST API (`/api/...`), WebSocket (`/api/ws`), SSE (`/api/events`), MCP (`/api/mcp`), OpenAPI (`/swagger-ui`), NMOS Node and Connection APIs (`/x-nmos/...`, unauthenticated) |
 
 This is the port Open Live needs reachable. Override it with `STROM_PORT` or `--port` if `8080` is taken on the host.
 

@@ -5,6 +5,7 @@ All notable changes to the Strom GStreamer Flow Engine project.
 ## [Unreleased]
 
 ### Added
+- NMOS node for MXL (BCP-007-03): IS-04 v1.3 and IS-05 v1.2 on `/x-nmos`, so a controller can connect MXL senders and receivers by `mxl_domain_id` and `mxl_flow_id`. Registration uses a configured registry URL or mDNS; Strom is not a registry
 - MXL video and audio input/output blocks (cargo feature `mxl`), with a `backend` property (`auto` / `gpu` / `cpu`) on the video pair
 - `v210glupload` / `v210gldownload` GStreamer elements: GPU unpack/pack of v210 via an RGB10A2 proxy texture (8-bit RGBA mixer path — not a bit-exact 10-bit round-trip)
 - Host/container setup notes under `scripts/setup/mxl/`

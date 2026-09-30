@@ -93,6 +93,9 @@ struct AppStateInner {
     /// per-flow entry is cleared on `stop_flow`; a fresh start sees an empty
     /// set, which matches the build-time element defaults (gates closed).
     mixer_solo_state: RwLock<HashMap<FlowId, HashMap<String, HashSet<String>>>>,
+    /// NMOS IS-04/IS-05 node. Installed after construction so callbacks can
+    /// hold an `AppState` clone.
+    nmos: parking_lot::Mutex<Option<crate::nmos::NmosNode>>,
 }
 
 /// Pick the ramp_ms that should apply to a single property in a batched
@@ -120,7 +123,7 @@ impl AppState {
         let events = EventBroadcaster::default();
         let affinity_manager = AffinityManager::new();
         let num_cores = affinity_manager.num_cores();
-        Self {
+        let state = Self {
             inner: Arc::new(AppStateInner {
                 flows: RwLock::new(HashMap::new()),
                 storage: Arc::new(storage),
@@ -148,8 +151,136 @@ impl AppState {
                 gst_debug_filter: parking_lot::Mutex::new(String::new()),
                 default_gst_debug_filter: parking_lot::Mutex::new(String::new()),
                 mixer_solo_state: RwLock::new(HashMap::new()),
+                nmos: parking_lot::Mutex::new(None),
             }),
+        };
+        state.install_nmos(crate::nmos::NmosSettings::disabled());
+        state
+    }
+
+    /// Replace the NMOS node. Call this before the HTTP router is built.
+    pub fn install_nmos(&self, settings: crate::nmos::NmosSettings) {
+        if let Some(previous) = self.inner.nmos.lock().take() {
+            previous.request_shutdown();
         }
+        let node = crate::nmos::node_for_app(settings, self.clone());
+        *self.inner.nmos.lock() = Some(node);
+    }
+
+    /// The NMOS node, if `install_nmos` has run.
+    pub fn nmos(&self) -> Option<crate::nmos::NmosNode> {
+        self.inner.nmos.lock().clone()
+    }
+
+    /// Start mDNS advertisement and registry heartbeats when the node is enabled.
+    pub fn start_nmos(&self) {
+        if let Some(node) = self.nmos() {
+            crate::nmos::start(node);
+        }
+    }
+
+    /// Remove this node from the registry during shutdown.
+    pub async fn shutdown_nmos(&self) {
+        if let Some(node) = self.nmos() {
+            crate::nmos::shutdown(&node).await;
+        }
+    }
+
+    /// Apply an IS-05 activation to the MXL block and start or stop its flow.
+    ///
+    /// `flow-id` on `mxlsink`/`mxlsrc` is only mutable in NULL/READY, so a
+    /// connection change restarts the whole Strom flow.
+    pub async fn apply_nmos_mxl(&self, command: crate::nmos::MxlApply) -> Result<(), String> {
+        use strom_types::element::PropertyValue;
+        use strom_types::mxl::{
+            MXL_AUDIO_INPUT_ID, MXL_AUDIO_OUTPUT_ID, MXL_VIDEO_INPUT_ID, MXL_VIDEO_OUTPUT_ID,
+        };
+
+        let expected = match command.kind {
+            crate::nmos::EndpointKind::VideoSender => MXL_VIDEO_OUTPUT_ID,
+            crate::nmos::EndpointKind::AudioSender => MXL_AUDIO_OUTPUT_ID,
+            crate::nmos::EndpointKind::VideoReceiver => MXL_VIDEO_INPUT_ID,
+            crate::nmos::EndpointKind::AudioReceiver => MXL_AUDIO_INPUT_ID,
+        };
+        let (domain_key, flow_key) = match command.kind {
+            crate::nmos::EndpointKind::VideoSender | crate::nmos::EndpointKind::AudioSender => {
+                ("domain", "flow_id")
+            }
+            crate::nmos::EndpointKind::VideoReceiver => ("domain", "video_flow_id"),
+            crate::nmos::EndpointKind::AudioReceiver => ("domain", "audio_flow_id"),
+        };
+
+        let running = {
+            let pipelines = self.inner.pipelines.read().await;
+            pipelines.contains_key(&command.flow_id)
+        };
+
+        if command.master_enable {
+            let changed = {
+                let mut flows = self.inner.flows.write().await;
+                let flow = flows
+                    .get_mut(&command.flow_id)
+                    .ok_or_else(|| format!("flow {} is not loaded", command.flow_id))?;
+                let block = flow
+                    .blocks
+                    .iter_mut()
+                    .find(|block| block.id == command.block_id)
+                    .ok_or_else(|| format!("block {} is not in the flow", command.block_id))?;
+                if block.block_definition_id != expected {
+                    return Err(format!(
+                        "block {} is {}, not an MXL endpoint of this kind",
+                        command.block_id, block.block_definition_id
+                    ));
+                }
+                let current_domain = match block.properties.get(domain_key) {
+                    Some(PropertyValue::String(value)) => value.clone(),
+                    _ => String::new(),
+                };
+                let current_flow = match block.properties.get(flow_key) {
+                    Some(PropertyValue::String(value)) => value.clone(),
+                    _ => String::new(),
+                };
+                let changed =
+                    current_domain != command.domain_path || current_flow != command.mxl_flow_id;
+                if changed {
+                    block.properties.insert(
+                        domain_key.to_string(),
+                        PropertyValue::String(command.domain_path.clone()),
+                    );
+                    block.properties.insert(
+                        flow_key.to_string(),
+                        PropertyValue::String(command.mxl_flow_id.clone()),
+                    );
+                }
+                (changed, flow.properties.ephemeral, flow.clone())
+            };
+            let (changed, ephemeral, flow) = changed;
+            if changed && !ephemeral {
+                self.inner
+                    .storage
+                    .save_flow(&flow)
+                    .await
+                    .map_err(|err| err.to_string())?;
+                self.inner.events.broadcast(StromEvent::FlowUpdated {
+                    flow_id: command.flow_id,
+                });
+            }
+            if changed && running {
+                self.stop_flow(&command.flow_id)
+                    .await
+                    .map_err(|err| err.to_string())?;
+            }
+            if changed || !running {
+                self.start_flow(&command.flow_id)
+                    .await
+                    .map_err(|err| err.to_string())?;
+            }
+        } else if running {
+            self.stop_flow(&command.flow_id)
+                .await
+                .map_err(|err| err.to_string())?;
+        }
+        Ok(())
     }
 
     /// Set the log reload handle and default filter (called once from main after init_logging).
