@@ -379,10 +379,10 @@ jobs:
           #!/bin/bash
           args=()
           for arg in "$@"; do
-  case "$arg" in
-    -Wl,--fix-cortex-a53-843419|--fix-cortex-a53-843419) ;;
-    *) args+=("$arg") ;;
-  esac
+            case "$arg" in
+              -Wl,--fix-cortex-a53-843419|--fix-cortex-a53-843419) ;;
+              *) args+=("$arg") ;;
+            esac
           done
           exec /usr/local/bin/zig.bin "${args[@]}"
           EOF
