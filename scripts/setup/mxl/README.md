@@ -25,7 +25,7 @@ The GPU element unit test is opt-in (`STROM_V210GL_GPU_TEST=1`) because an RGB10
 ./verify-mxl.sh
 ```
 
-`install-mxl-sdk.sh` clones [dmf-mxl/mxl](https://github.com/dmf-mxl/mxl) (default tag `v1.1.0-beta-1`, the first release that ships `gst-mxl-rs`), installs the CMake CONFIG deps via vcpkg (`stduuid`, `spdlog`, `fmt`, `picojson`), builds `libmxl` and `libgstmxl`, and installs them under `/usr/local`. The script fails if either `.so` is missing.
+`install-mxl-sdk.sh` clones [dmf-mxl/mxl](https://github.com/dmf-mxl/mxl) (default tag `v1.1.0`), installs the CMake CONFIG deps via vcpkg (`stduuid`, `spdlog`, `fmt`, `picojson`), builds `libmxl` and `libgstmxl`, and installs them under `/usr/local`. The script fails if either `.so` is missing.
 
 ## GHCR image (recommended for GPU host tests)
 
