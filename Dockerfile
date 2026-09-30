@@ -132,7 +132,18 @@ RUN if [ "$BUILDPLATFORM" != "$TARGETPLATFORM" ] && [ "$TARGETARCH" = "arm64" ];
     echo "${ZIG_SHA256}  /tmp/${ZIG_TARBALL}" | sha256sum -c && \
     tar -xf "/tmp/${ZIG_TARBALL}" -C /usr/local && \
     mv /usr/local/zig-linux-${ZIG_ARCH}-${ZIG_VERSION} /usr/local/zig && \
-    ln -s /usr/local/zig/zig /usr/local/bin/zig && \
+    ln -sfn /usr/local/zig/zig /usr/local/bin/zig.bin && \
+    printf '%s\n' '#!/bin/bash' \
+      'args=()' \
+      'for arg in "$@"; do' \
+      '  case "$arg" in' \
+      '    -Wl,--fix-cortex-a53-843419|--fix-cortex-a53-843419) ;;' \
+      '    *) args+=("$arg") ;;' \
+      '  esac' \
+      'done' \
+      'exec /usr/local/bin/zig.bin "${args[@]}"' \
+      > /usr/local/bin/zig && \
+    chmod 0755 /usr/local/bin/zig && \
     rm "/tmp/${ZIG_TARBALL}" && \
     # Install cargo-zigbuild from prebuilt binary (avoids ~10 min compile)
     CZB_TARGET="${ZIG_ARCH}-unknown-linux-gnu" && \
