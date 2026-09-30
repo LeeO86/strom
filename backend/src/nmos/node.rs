@@ -1373,7 +1373,7 @@ fn interfaces_json() -> Value {
 fn nmos_mac(mac: Option<&str>) -> Option<String> {
     let mac = mac?;
     let bytes = mac
-        .split(|c: char| matches!(c, ':' | '-' | '.'))
+        .split([':', '-', '.'])
         .filter(|part| !part.is_empty())
         .map(|part| u8::from_str_radix(part, 16).ok())
         .collect::<Option<Vec<u8>>>()?;
@@ -1460,6 +1460,10 @@ fn hostname_string() -> String {
         .unwrap_or_else(|| "strom".to_string())
 }
 
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|err| err.into_inner())
+}
+
 #[cfg(test)]
 mod interface_tests {
     use super::nmos_mac;
@@ -1477,8 +1481,4 @@ mod interface_tests {
         assert!(nmos_mac(None).is_none());
         assert!(nmos_mac(Some("enp0s5")).is_none());
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|err| err.into_inner())
 }
