@@ -424,7 +424,7 @@ async fn wipe_between_letterboxed_sources_animates() {
         let mut white = 0u64;
         let mut red = 0u64;
         let total = (w * h) as u64;
-        for px in map.chunks_exact(4).take(w * h) {
+        for px in map.as_chunks::<4>().0.iter().take(w * h) {
             let (r, g, b) = (px[ri], px[gi], px[bi]);
             if r > 200 && g > 200 && b > 200 {
                 white += 1;
