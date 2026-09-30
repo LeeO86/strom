@@ -532,7 +532,7 @@ pub async fn create_app_with_config(
             }),
         )
         .with_state(state)
-        .nest("/x-nmos", nmos::router(nmos_node))
+        .merge(nmos::mounted(nmos_node))
         // Serve embedded frontend for all other routes
         .fallback(assets::serve_static)
 }

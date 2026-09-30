@@ -301,8 +301,12 @@ impl NmosNode {
             ["connection", "v1.2", "single"] => Ok((200, json!(["senders/", "receivers/"]))),
             ["connection", "v1.2", "single", "senders"] => Ok((200, model.id_list(true))),
             ["connection", "v1.2", "single", "receivers"] => Ok((200, model.id_list(false))),
-            ["connection", "v1.2", "bulk", "senders"] => Ok((200, model.bulk(true))),
-            ["connection", "v1.2", "bulk", "receivers"] => Ok((200, model.bulk(false))),
+            // IS-05 bulk resources are POST (and OPTIONS). GET is defined as 405.
+            ["connection", "v1.2", "bulk", "senders"]
+            | ["connection", "v1.2", "bulk", "receivers"] => {
+                Err(api_error(405, "bulk staging is POST only"))
+            }
+            ["connection", "v1.2", "single", kind, id] => model.single_index(kind, id),
             ["connection", "v1.2", "single", kind, id, leaf] => model.single_get(kind, id, leaf),
             _ => Err(api_error(404, "not found")),
         }
@@ -622,11 +626,37 @@ impl Model {
             "staged" => Ok((200, staged_json(endpoint))),
             "active" => Ok((200, active_json(endpoint))),
             "constraints" => Ok((200, constraints_json(&self.domains))),
+            "transporttype" => Ok((200, json!("urn:x-nmos:transport:mxl"))),
             "transportfile" if is_sender => Err(api_error(
                 404,
                 "MXL senders do not provide a transport file",
             )),
             _ => Err(api_error(404, "not found")),
+        }
+    }
+
+    fn single_index(&self, kind: &str, id: &str) -> Result<(u16, Value), (u16, Value)> {
+        let is_sender = kind_is_sender(kind)?;
+        let id = parse_id(id)?;
+        if self.key_for(is_sender, id).is_none() {
+            return Err(api_error(404, "sender or receiver not found"));
+        }
+        if is_sender {
+            Ok((
+                200,
+                json!([
+                    "constraints/",
+                    "staged/",
+                    "active/",
+                    "transportfile/",
+                    "transporttype/"
+                ]),
+            ))
+        } else {
+            Ok((
+                200,
+                json!(["constraints/", "staged/", "active/", "transporttype/"]),
+            ))
         }
     }
 
@@ -646,30 +676,6 @@ impl Model {
             .collect();
         ids.sort();
         Value::Array(ids.into_iter().map(Value::String).collect())
-    }
-
-    fn bulk(&self, senders: bool) -> Value {
-        let mut rows: Vec<Value> = self
-            .endpoints
-            .values()
-            .filter(|endpoint| endpoint.kind.is_sender() == senders)
-            .map(|endpoint| {
-                let id = if senders {
-                    endpoint.sender_id(self.node_id)
-                } else {
-                    endpoint.receiver_id(self.node_id)
-                };
-                let mut staged = staged_json(endpoint);
-                staged["id"] = json!(id.to_string());
-                staged
-            })
-            .collect();
-        rows.sort_by(|left, right| {
-            left.get("id")
-                .and_then(|v| v.as_str())
-                .cmp(&right.get("id").and_then(|v| v.as_str()))
-        });
-        Value::Array(rows)
     }
 
     fn publish(&mut self, settings: &NmosSettings) -> Vec<Published> {
@@ -881,6 +887,9 @@ impl Model {
                     "format": format_urn(endpoint.kind),
                     "caps": {
                         "media_types": [media_type],
+                        // BCP-004-01 requires a TAI timestamp whenever constraint_sets
+                        // is present. These caps are fixed for the life of the node.
+                        "version": "0:0",
                         "constraint_sets": [constraints]
                     },
                     "device_id": Endpoint::device_id(node_id, endpoint.flow_id).to_string(),

@@ -15,6 +15,7 @@ All notable changes to the Strom GStreamer Flow Engine project.
 - MXL SDK pin is `v1.1.0` (was `v1.1.0-beta-1`). The v1.0 flow format stays compatible. `label`, `description`, and `group-hint` on `mxlsink` are real properties in this release, and `mxlsrc` waits for a missing flow in `create()` rather than during caps negotiation
 
 ### Fixed
+- NMOS node: BCP-007-03 receiver caps include a BCP-004-01 `version`, IS-05 single resources list their children and `transporttype`, `GET /x-nmos` answers without a trailing slash, and `/x-nmos` sends CORS headers (including OPTIONS)
 - Frontend: suffix egui stroke and plot widths as `f32` so rustc 1.97 `-D warnings` no longer fails on the `f32: From<f64>` fallback ([rust#154024](https://github.com/rust-lang/rust/issues/154024))
 - Docker / `gst-mxl-rs`: `mxlsink` dlopened the SDK build-tree path (`.../Linux-Clang-Release/lib/libmxl.so`) instead of `/usr/local/lib/libmxl.so`, so flows failed at start with "Failed to load MXL API" even though the library was baked in
 - Docker: do not bake `/root/.cache/gstreamer-1.0` from the GPU-less image builder — a stale `registry.x86_64.bin` cached `nvcodec` as 0 features, so containers skipped NVENC even with a working driver and `libcuda`
