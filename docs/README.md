@@ -16,6 +16,7 @@ Common questions are answered in the [FAQ](FAQ.md).
 - [VISION_MIXER_OPERATOR_GUIDE.md](VISION_MIXER_OPERATOR_GUIDE.md) — broadcast PVW/PGM switcher: transitions, DSK, PiP, multiview.
 - [AUDIO_MIXER_OPERATOR_GUIDE.md](AUDIO_MIXER_OPERATOR_GUIDE.md) — audio mixing console signal flow and operation.
 - [HTML_RENDER.md](HTML_RENDER.md) — render web pages as video sources (CEF / `strom-full`).
+- [NMOS_MXL.md](NMOS_MXL.md) — connect MXL inputs and outputs with an NMOS controller (IS-04 / IS-05).
 - [STREAM_SYNCHRONIZATION.md](STREAM_SYNCHRONIZATION.md) — aligning multiple inputs with PTP/NTP clocks.
 
 The full set of built-in blocks and their properties is best browsed in the app's element

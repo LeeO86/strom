@@ -33,6 +33,7 @@ pub mod json_rejection;
 pub mod layout;
 pub mod mcp;
 pub mod network;
+pub mod nmos;
 pub mod openapi;
 pub mod osc;
 pub mod paths;
@@ -471,6 +472,10 @@ pub async fn create_app_with_config(
         .layer(middleware::from_fn(auth::auth_middleware))
         .layer(Extension(auth_config));
 
+    let nmos_node = state
+        .nmos()
+        .unwrap_or_else(|| nmos::node_for_app(nmos::NmosSettings::disabled(), state.clone()));
+
     // Build main router
     Router::new()
         .route("/health", get(health))
@@ -527,6 +532,7 @@ pub async fn create_app_with_config(
             }),
         )
         .with_state(state)
+        .nest("/x-nmos", nmos::router(nmos_node))
         // Serve embedded frontend for all other routes
         .fallback(assets::serve_static)
 }

@@ -470,6 +470,9 @@ fn run_with_gui(
 
         // GStreamer elements are discovered lazily on first /api/elements request
 
+        state.install_nmos(config.nmos_settings());
+        state.start_nmos();
+
         // Create the HTTP app BEFORE auto-restart
         let app = create_app_with_config(
             state.clone(),
@@ -502,9 +505,11 @@ fn run_with_gui(
         // Graceful shutdown via axum_server::Handle
         let handle = axum_server::Handle::new();
         let handle_for_signal = handle.clone();
+        let state_for_shutdown = state.clone();
         tokio::spawn(async move {
             wait_for_shutdown_signal().await;
             info!("Signaling GUI to close...");
+            state_for_shutdown.shutdown_nmos().await;
             shutdown_flag.store(true, Ordering::SeqCst);
             handle_for_signal.graceful_shutdown(Some(Duration::from_secs(10)));
         });
@@ -612,6 +617,9 @@ async fn run_headless(
 
     // GStreamer elements are discovered lazily on first /api/elements request
 
+    state.install_nmos(config.nmos_settings());
+    state.start_nmos();
+
     // Create the HTTP app BEFORE auto-restart, then bind AFTER
     let app = create_app_with_config(
         state.clone(),
@@ -641,9 +649,11 @@ async fn run_headless(
     // Graceful shutdown via axum_server::Handle
     let handle = axum_server::Handle::new();
     let handle_for_signal = handle.clone();
+    let state_for_shutdown = state.clone();
     tokio::spawn(async move {
         wait_for_shutdown_signal().await;
         info!("Server shutting down");
+        state_for_shutdown.shutdown_nmos().await;
         handle_for_signal.graceful_shutdown(Some(Duration::from_secs(10)));
     });
 
