@@ -377,6 +377,12 @@ pub const DEFAULT_SRT_OUTPUT_URI: &str = "srt://:5000?mode=listener";
 /// Default SRT URI for input (caller connecting to the output listener).
 pub const DEFAULT_SRT_INPUT_URI: &str = "srt://127.0.0.1:5000?mode=caller";
 
+/// Default RTMP URL for output.
+///
+/// Deliberately a loopback address: a default that reached a real server would
+/// publish a programme by accident on the first flow start.
+pub const DEFAULT_RTMP_LOCATION: &str = "rtmp://127.0.0.1:1935/live/stream";
+
 /// Default SRT latency in milliseconds.
 pub const DEFAULT_SRT_LATENCY_MS: i32 = 125;
 
@@ -414,6 +420,11 @@ pub const DEFAULT_EFP_HOL_TIMEOUT: u32 = 5;
 /// Compacts small AES67 buffers (typically 1ms) into larger chunks to reduce
 /// downstream wakeups and context switches.
 pub const DEFAULT_AES67_INPUT_BUFFER_DURATION_MS: i64 = 20;
+
+/// Default RTP payload type for AES67 output.
+/// 96 is the first dynamic payload type (RFC 3551), which AES67 requires for
+/// L16/L24 streams that are not covered by a static payload type assignment.
+pub const DEFAULT_AES67_OUTPUT_PAYLOAD_TYPE: i64 = 96;
 
 /// Default Opus encoder complexity (0-10). GStreamer defaults to 10 (max CPU).
 /// 5 is a good balance between quality and CPU for real-time use cases.

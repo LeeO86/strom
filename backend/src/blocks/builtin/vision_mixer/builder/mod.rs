@@ -13,6 +13,7 @@ use super::properties;
 use crate::blocks::{BlockBuildContext, BlockBuildError, BlockBuildResult, BlockBuilder};
 use gstreamer as gst;
 use gstreamer_app as gst_app;
+use gstreamer_video as gst_video;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use strom_types::vision_mixer;
@@ -169,6 +170,7 @@ impl BlockBuilder for VisionMixerBuilder {
 
         let p = PipelineParams {
             instance_id,
+            flow_id: properties::parse_flow_id(props),
             num_inputs,
             num_dsk_inputs,
             num_pips,
@@ -205,6 +207,9 @@ impl BlockBuilder for VisionMixerBuilder {
 /// Shared parameters for pipeline construction.
 pub(super) struct PipelineParams<'a> {
     pub(super) instance_id: &'a str,
+    /// Owning flow, used to key the overlay registries so flow teardown can
+    /// clear them — see `overlay::unregister_flow`.
+    pub(super) flow_id: strom_types::FlowId,
     pub(super) num_inputs: usize,
     pub(super) num_dsk_inputs: usize,
     pub(super) num_pips: usize,
@@ -239,36 +244,76 @@ impl<'a> PipelineParams<'a> {
         format!("{}:{}", self.instance_id, name)
     }
 
-    /// Build PGM output caps with resolution, framerate, and optional pixel format.
-    pub(super) fn pgm_caps(&self) -> gst::Caps {
+    /// Raw video caps with resolution, framerate and an optional pixel format.
+    fn raw_caps(&self, w: u32, h: u32, framerate: (i32, i32), format: Option<&str>) -> gst::Caps {
         let mut builder = gst::Caps::builder("video/x-raw")
-            .field("width", self.pgm_w as i32)
-            .field("height", self.pgm_h as i32)
-            .field(
-                "framerate",
-                gst::Fraction::new(self.pgm_framerate.0, self.pgm_framerate.1),
-            )
+            .field("width", w as i32)
+            .field("height", h as i32)
+            .field("framerate", gst::Fraction::new(framerate.0, framerate.1))
             .field("pixel-aspect-ratio", gst::Fraction::new(1, 1));
-        if let Some(ref fmt) = self.output_format {
-            builder = builder.field("format", fmt.as_str());
+        if let Some(fmt) = format {
+            builder = builder.field("format", fmt);
         }
         builder.build()
     }
 
+    /// Build PGM output caps with resolution, framerate, and optional pixel format.
+    pub(super) fn pgm_caps(&self) -> gst::Caps {
+        self.raw_caps(
+            self.pgm_w,
+            self.pgm_h,
+            self.pgm_framerate,
+            self.output_format.as_deref(),
+        )
+    }
+
     /// Build multiview output caps with resolution, framerate, and optional pixel format.
     pub(super) fn mv_caps(&self) -> gst::Caps {
-        let mut builder = gst::Caps::builder("video/x-raw")
-            .field("width", self.mv_w as i32)
-            .field("height", self.mv_h as i32)
-            .field(
-                "framerate",
-                gst::Fraction::new(self.mv_framerate.0, self.mv_framerate.1),
-            )
-            .field("pixel-aspect-ratio", gst::Fraction::new(1, 1));
-        if let Some(ref fmt) = self.output_format {
-            builder = builder.field("format", fmt.as_str());
+        self.raw_caps(
+            self.mv_w,
+            self.mv_h,
+            self.mv_framerate,
+            self.output_format.as_deref(),
+        )
+    }
+
+    /// PGM caps with `format` instead of `output_format` — the software
+    /// compositor's blend space, see [`Self::alpha_blend_format`].
+    pub(super) fn pgm_blend_caps(&self, format: &str) -> gst::Caps {
+        self.raw_caps(self.pgm_w, self.pgm_h, self.pgm_framerate, Some(format))
+    }
+
+    /// Multiview caps with `format` instead of `output_format` — the software
+    /// compositor's blend space, see [`Self::alpha_blend_format`].
+    pub(super) fn mv_blend_caps(&self, format: &str) -> gst::Caps {
+        self.raw_caps(self.mv_w, self.mv_h, self.mv_framerate, Some(format))
+    }
+
+    /// The format the software compositor has to blend in so that keyed pads
+    /// keep their per-pixel alpha, or `None` when `output_format` needs no
+    /// substitute.
+    ///
+    /// `compositor` blends in its own output format and converts every sink
+    /// pad to it first, so an alpha-less `output_format` (I420, NV12, RGB, ...)
+    /// strips the alpha of DSK graphics, the multiview overlay and the border
+    /// underlays. Blending in the alpha-carrying counterpart and converting
+    /// once on the way out keeps the key and still hands `output_format`
+    /// downstream. Alpha-carrying and unknown formats are left alone.
+    pub(super) fn alpha_blend_format(&self) -> Option<&'static str> {
+        let fmt = self.output_format.as_deref()?;
+        let format = fmt.parse::<gst_video::VideoFormat>().ok()?;
+        let info = gst_video::VideoFormatInfo::from_format(format);
+        if info.has_alpha() {
+            return None;
         }
-        builder.build()
+        // Match the chroma subsampling of the requested format so the extra
+        // hop costs nothing the output would not have cost anyway.
+        Some(match fmt {
+            "YUY2" | "UYVY" => "A422",
+            "v210" => "A422_10LE",
+            _ if info.is_rgb() || info.is_gray() => "RGBA",
+            _ => "A420",
+        })
     }
 
     /// Build PGM output caps for the GL-memory passthrough path.
@@ -344,7 +389,7 @@ pub(super) fn setup_overlay_renderer(
     ));
 
     // Register the overlay state so the API layer can access it
-    overlay::register_overlay_state(p.instance_id, Arc::clone(&overlay_state));
+    overlay::register_overlay_state(p.flow_id, p.instance_id, Arc::clone(&overlay_state));
 
     let renderer = Arc::new(Mutex::new(OverlayRenderer::new(
         appsrc.clone(),
@@ -355,7 +400,7 @@ pub(super) fn setup_overlay_renderer(
     )));
 
     let block_id = p.instance_id.to_string();
-    overlay::register_overlay_renderer(&block_id, Arc::clone(&renderer));
+    overlay::register_overlay_renderer(p.flow_id, &block_id, Arc::clone(&renderer));
 
     let block_id_for_timer = block_id.clone();
     let renderer_for_timer = Arc::clone(&renderer);

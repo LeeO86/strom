@@ -18,7 +18,6 @@
 #   SKIP_GSTREAMER           - Skip GStreamer installation (default: false, GStreamer installs by default)
 #   GSTREAMER_INSTALL_TYPE   - GStreamer install type: "minimal" or "full" (default: full)
 #   SKIP_GRAPHVIZ            - Skip Graphviz installation (default: false, Graphviz installs by default)
-#   INSTALL_MCP_SERVER       - Install strom-mcp-server instead of strom (default: false)
 #   VERSION                  - Specific version to install (default: latest)
 #
 # Examples:
@@ -46,8 +45,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 REPO="Eyevinn/strom"
-BINARY_NAME="${INSTALL_MCP_SERVER:+strom-mcp-server}"
-BINARY_NAME="${BINARY_NAME:-strom}"
+BINARY_NAME="strom"
 VERSION="${VERSION:-latest}"
 GSTREAMER_INSTALL_TYPE="${GSTREAMER_INSTALL_TYPE:-full}"
 SKIP_GSTREAMER="${SKIP_GSTREAMER:-false}"
@@ -169,7 +167,7 @@ is_gstreamer_installed() {
             if command -v brew >/dev/null 2>&1; then
                 local required_packages=(gstreamer gst-plugins-base gst-plugins-good)
                 if [ "$install_type" = "full" ]; then
-                    required_packages+=(gst-plugins-bad gst-plugins-ugly)
+                    required_packages+=(gst-plugins-bad gst-plugins-ugly libnice-gstreamer)
                 fi
                 for pkg in "${required_packages[@]}"; do
                     if ! brew list "$pkg" >/dev/null 2>&1; then
@@ -385,8 +383,12 @@ install_gstreamer() {
             if command -v brew >/dev/null 2>&1; then
                 local packages=(gstreamer gst-plugins-base gst-plugins-good)
 
+                # libnice-gstreamer provides the nicesrc/nicesink elements that
+                # webrtcbin needs for ICE. The plain libnice formula installs
+                # only the library, leaving webrtcbin without ICE, which aborts
+                # every WHIP/WHEP session. libnice-gstreamer depends on libnice.
                 if [ "$install_type" = "full" ]; then
-                    packages+=(gst-plugins-bad gst-plugins-ugly gst-libav libnice)
+                    packages+=(gst-plugins-bad gst-plugins-ugly gst-libav libnice-gstreamer)
                 fi
 
                 brew install "${packages[@]}"
@@ -480,15 +482,15 @@ show_config_menu() {
 
     echo "Current settings:"
     echo ""
-    echo -e "  1. Binary:            ${GREEN}${BINARY_NAME}${NC}${strom_status}"
-    echo -e "  2. Version:           ${GREEN}${VERSION}${NC}"
-    echo -e "  3. Install GStreamer: ${GREEN}$([ "$SKIP_GSTREAMER" = "false" ] && echo "Yes" || echo "No")${NC}${gst_status}"
-    echo -e "  4. GStreamer Type:    ${GREEN}${GSTREAMER_INSTALL_TYPE}${NC} (minimal/full)"
-    echo -e "  5. Install Graphviz:  ${GREEN}$([ "$SKIP_GRAPHVIZ" = "false" ] && echo "Yes" || echo "No")${NC}${gv_status}"
+    echo -e "  Binary:               ${GREEN}${BINARY_NAME}${NC}${strom_status}"
+    echo -e "  1. Version:           ${GREEN}${VERSION}${NC}"
+    echo -e "  2. Install GStreamer: ${GREEN}$([ "$SKIP_GSTREAMER" = "false" ] && echo "Yes" || echo "No")${NC}${gst_status}"
+    echo -e "  3. GStreamer Type:    ${GREEN}${GSTREAMER_INSTALL_TYPE}${NC} (minimal/full)"
+    echo -e "  4. Install Graphviz:  ${GREEN}$([ "$SKIP_GRAPHVIZ" = "false" ] && echo "Yes" || echo "No")${NC}${gv_status}"
     if [ -n "$INSTALL_DIR" ]; then
-        echo -e "  6. Install Directory: ${GREEN}${INSTALL_DIR}${NC}"
+        echo -e "  5. Install Directory: ${GREEN}${INSTALL_DIR}${NC}"
     else
-        echo -e "  6. Install Directory: ${GREEN}auto (/usr/local/bin or ~/.local/bin)${NC}"
+        echo -e "  5. Install Directory: ${GREEN}auto (/usr/local/bin or ~/.local/bin)${NC}"
     fi
     echo ""
     echo -e "  ${GREEN}c${NC}. Continue with these settings"
@@ -501,26 +503,12 @@ show_config_menu() {
     case "$choice" in
         1)
             echo ""
-            echo "Select binary to install:"
-            echo "  1. strom (main application)"
-            echo "  2. strom-mcp-server (MCP server)"
-            echo -n "Choice [1-2]: "
-            read -r bin_choice </dev/tty
-            case "$bin_choice" in
-                1) BINARY_NAME="strom" ;;
-                2) BINARY_NAME="strom-mcp-server" ;;
-                *) log_warning "Invalid choice, keeping current setting" ;;
-            esac
-            show_config_menu
-            ;;
-        2)
-            echo ""
             echo -n "Enter version (or 'latest'): "
             read -r ver </dev/tty
             VERSION="${ver:-latest}"
             show_config_menu
             ;;
-        3)
+        2)
             echo ""
             echo "Install GStreamer? (Required for Strom to work)"
             echo -n "Choice [y/N]: "
@@ -532,7 +520,7 @@ show_config_menu() {
             esac
             show_config_menu
             ;;
-        4)
+        3)
             echo ""
             echo "Select GStreamer installation type:"
             echo "  1. minimal - Core + base/good plugins (~200MB)"
@@ -546,7 +534,7 @@ show_config_menu() {
             esac
             show_config_menu
             ;;
-        5)
+        4)
             echo ""
             echo "Install Graphviz? (Required for debug graphs)"
             echo -n "Choice [y/N]: "
@@ -558,7 +546,7 @@ show_config_menu() {
             esac
             show_config_menu
             ;;
-        6)
+        5)
             echo ""
             echo -n "Enter install directory (or leave empty for auto): "
             read -r dir </dev/tty

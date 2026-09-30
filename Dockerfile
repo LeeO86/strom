@@ -199,8 +199,18 @@ COPY . .
 # Note: Trunk.toml puts output in ../backend/dist relative to frontend/
 COPY --from=frontend-builder /app/backend/dist backend/dist
 
-# Build the backend (headless - no native GUI needed in Docker) and MCP server
+# Build the backend (headless - no native GUI needed in Docker)
 ENV RUST_BACKTRACE=1
+
+# Git provenance for /api/version and --version-info. The build context has no .git/
+# (see .dockerignore), so build.rs cannot shell out to git here and takes these instead.
+# Declared immediately before the build so an earlier layer is not invalidated per commit.
+ARG GIT_HASH
+ARG GIT_TAG
+ARG GIT_BRANCH
+ENV GIT_HASH=${GIT_HASH} \
+    GIT_TAG=${GIT_TAG} \
+    GIT_BRANCH=${GIT_BRANCH}
 
 # Cross-compilation: Use cargo-zigbuild with glibc 2.36 targeting (Raspberry Pi compatible)
 # Native compilation: Use regular cargo build
@@ -231,15 +241,12 @@ RUN --mount=type=secret,id=aws_access_key_id \
     export CMAKE_CXX_FLAGS="-std=gnu++17" && \
     export RUSTFLAGS="-L /usr/lib/aarch64-linux-gnu" && \
     cargo zigbuild --release --package strom --no-default-features --features ${STROM_FEATURES} --target aarch64-unknown-linux-gnu.2.36 && \
-    cargo zigbuild --release --package strom-mcp-server --target aarch64-unknown-linux-gnu.2.36 && \
-    # Move binaries to expected location (cargo-zigbuild puts them in target/aarch64-unknown-linux-gnu/release)
+    # Move the binary to expected location (cargo-zigbuild puts it in target/aarch64-unknown-linux-gnu/release)
     mkdir -p target/release && \
-    cp target/aarch64-unknown-linux-gnu/release/strom target/release/strom && \
-    cp target/aarch64-unknown-linux-gnu/release/strom-mcp-server target/release/strom-mcp-server; \
+    cp target/aarch64-unknown-linux-gnu/release/strom target/release/strom; \
 else \
     echo "==> Native build for $TARGETPLATFORM"; \
-    cargo build --release --package strom --features ${STROM_FEATURES} && \
-    cargo build --release --package strom-mcp-server; \
+    cargo build --release --package strom --features ${STROM_FEATURES}; \
 fi && \
     { command -v sccache >/dev/null && [ -n "$RUSTC_WRAPPER" ] && sccache --show-stats || true; }
 
@@ -326,17 +333,31 @@ RUN apt-get update && apt-get install -y \
 # in this image because it was built against the 1.22 ABI.
 ARG PATCHED_PLUGINS_TAG=patched-plugins-v1.0-gst1.22.12
 ARG PATCHED_PLUGINS_REPO=Eyevinn/strom
+# Pin each artifact by digest. A GitHub release asset can be replaced in place,
+# so fetching by tag alone means a substituted .so would be written straight
+# into a system library path and loaded into the strom process, with nothing in
+# the build failing. Download to a temporary path, verify, then install.
+ARG PATCHED_DECKLINK_SHA256_AMD64=ffdcb4f89e3fd91deb1926bbca57adf02d67e89a8db1c265a62f5d4885a69e5b
+ARG PATCHED_DECKLINK_SHA256_ARM64=75309b22382e834f3caa25b9e177120f56826bdde231a00d66dd54866d3a090b
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && case "${TARGETARCH}" in \
+         amd64) expected="${PATCHED_DECKLINK_SHA256_AMD64}" ;; \
+         arm64) expected="${PATCHED_DECKLINK_SHA256_ARM64}" ;; \
+         *) echo "No pinned libgstdecklink digest for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
     && curl -fsSL \
         "https://github.com/${PATCHED_PLUGINS_REPO}/releases/download/${PATCHED_PLUGINS_TAG}/libgstdecklink-linux-${TARGETARCH}.so" \
-        -o "/usr/lib/$(uname -m)-linux-gnu/gstreamer-1.0/libgstdecklink.so" \
+        -o /tmp/libgstdecklink.so \
+    && echo "${expected}  /tmp/libgstdecklink.so" | sha256sum -c - \
+    && install -m 0644 /tmp/libgstdecklink.so \
+        "/usr/lib/$(uname -m)-linux-gnu/gstreamer-1.0/libgstdecklink.so" \
+    && rm -f /tmp/libgstdecklink.so \
     && apt-get remove -y curl \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the compiled binaries from backend-builder to /app
+# Copy the compiled binary from backend-builder to /app
 COPY --from=backend-builder /app/target/release/strom /app/strom
-COPY --from=backend-builder /app/target/release/strom-mcp-server /app/strom-mcp-server
 
 # Bake libmxl + gstmxl. Fail the image if gst-inspect cannot load the plugin.
 COPY --from=mxl-sdk /opt/mxl-dist /opt/mxl-dist

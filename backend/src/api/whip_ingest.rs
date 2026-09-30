@@ -7,16 +7,18 @@
 use crate::api::sdp_transform::{
     add_goog_remb, fix_video_bitrate_hints, strip_cvo_extension, strip_redundancy_codecs,
 };
-use crate::blocks::builtin::whip::create_whipserversrc_for_session;
+use crate::blocks::builtin::whip::{create_whipserversrc_for_session, CreatedSession};
 use crate::json_rejection::JsonBody;
 use crate::state::AppState;
-use crate::whip_session_manager::WhipSessionManager;
+use crate::whip_session_manager::{NewWhipSession, WhipSessionManager};
 use axum::{
     body::Body,
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 /// Serve the WHIP ingest page.
@@ -130,11 +132,15 @@ pub async fn whip_post(
     // Allocate a slot for this session (pre-allocate with a temporary resource_id,
     // will be updated when we learn the real resource_id from the Location header)
     let temp_resource_id = uuid::Uuid::new_v4().to_string();
-    let slot = match config.allocate_slot(&temp_resource_id) {
+    let slot = match state
+        .whip_session_manager()
+        .allocate_slot_or_take_over(&config, &temp_resource_id)
+        .await
+    {
         Some(s) => s,
         None => {
             warn!(
-                "WHIP endpoint '{}': all {} slots occupied, rejecting client",
+                "WHIP endpoint '{}': all {} slots occupied by live sessions, rejecting client",
                 endpoint_id, config.max_sessions
             );
             return (
@@ -145,11 +151,26 @@ pub async fn whip_post(
         }
     };
 
-    // Create a new whipserversrc for this session in an isolated pipeline
+    // Create a new whipserversrc for this session in an isolated pipeline.
+    // `cleanup_sent` is handed to both the session's callbacks and (below) the
+    // session manager, so that every teardown path can stop the session's
+    // inactivity watchdog.
     let config_for_session = config.clone();
     let cleanup_tx = state.whip_session_manager().cleanup_sender();
-    let (element, session_pipeline, port) = match tokio::task::spawn_blocking(move || {
-        create_whipserversrc_for_session(&config_for_session, slot, cleanup_tx)
+    let cleanup_sent = Arc::new(AtomicBool::new(false));
+    let cleanup_sent_for_session = cleanup_sent.clone();
+    let CreatedSession {
+        element,
+        session_pipeline,
+        port,
+        activity,
+    } = match tokio::task::spawn_blocking(move || {
+        create_whipserversrc_for_session(
+            &config_for_session,
+            slot,
+            cleanup_tx,
+            cleanup_sent_for_session,
+        )
     })
     .await
     {
@@ -157,6 +178,9 @@ pub async fn whip_post(
         Ok(Err(e)) => {
             error!("Failed to create whipserversrc for session: {}", e);
             config.release_slot(slot);
+            // Abandoned session: stop its inactivity watchdog. Every early return
+            // below does the same — a watchdog left running outlives its session.
+            cleanup_sent.store(true, Ordering::SeqCst);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to create session: {}", e),
@@ -166,6 +190,7 @@ pub async fn whip_post(
         Err(e) => {
             error!("spawn_blocking panicked: {}", e);
             config.release_slot(slot);
+            cleanup_sent.store(true, Ordering::SeqCst);
             return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
         }
     };
@@ -182,6 +207,7 @@ pub async fn whip_post(
             error!("Failed to read request body: {}", e);
             // Teardown the element we just created and release slot
             config.release_slot(slot);
+            cleanup_sent.store(true, Ordering::SeqCst);
             let session_pipeline_clone = session_pipeline.clone();
             tokio::task::spawn_blocking(move || {
                 WhipSessionManager::teardown_session_pipeline(&session_pipeline_clone);
@@ -228,6 +254,7 @@ pub async fn whip_post(
         Err(e) => {
             error!("Failed to create HTTP client: {}", e);
             config.release_slot(slot);
+            cleanup_sent.store(true, Ordering::SeqCst);
             let session_pipeline_clone = session_pipeline.clone();
             tokio::task::spawn_blocking(move || {
                 WhipSessionManager::teardown_session_pipeline(&session_pipeline_clone);
@@ -271,6 +298,7 @@ pub async fn whip_post(
                 );
                 if attempt == max_attempts - 1 {
                     config.release_slot(slot);
+                    cleanup_sent.store(true, Ordering::SeqCst);
                     let session_pipeline_clone = session_pipeline.clone();
                     tokio::task::spawn_blocking(move || {
                         WhipSessionManager::teardown_session_pipeline(&session_pipeline_clone);
@@ -289,6 +317,7 @@ pub async fn whip_post(
         Some(tuple) => tuple,
         None => {
             config.release_slot(slot);
+            cleanup_sent.store(true, Ordering::SeqCst);
             let session_pipeline_clone = session_pipeline.clone();
             tokio::task::spawn_blocking(move || {
                 WhipSessionManager::teardown_session_pipeline(&session_pipeline_clone);
@@ -307,6 +336,7 @@ pub async fn whip_post(
         // cannot be used and would otherwise occupy the slot until the inactivity
         // watchdog fires.
         config.release_slot(slot);
+        cleanup_sent.store(true, Ordering::SeqCst);
         let session_pipeline_clone = session_pipeline.clone();
         tokio::task::spawn_blocking(move || {
             WhipSessionManager::teardown_session_pipeline(&session_pipeline_clone);
@@ -338,14 +368,18 @@ pub async fn whip_post(
                     "WHIP: Registering session resource_id='{}' on port {} for endpoint '{}' (slot {})",
                     resource_id, port, endpoint_id, slot
                 );
-                let registered = state.whip_session_manager().register_session(
-                    resource_id.to_string(),
-                    port,
-                    element,
-                    session_pipeline,
-                    endpoint_id.clone(),
-                    slot,
-                );
+                let registered = state
+                    .whip_session_manager()
+                    .register_session(NewWhipSession {
+                        resource_id: resource_id.to_string(),
+                        port,
+                        element,
+                        session_pipeline,
+                        endpoint_id: endpoint_id.clone(),
+                        slot,
+                        cleanup_sent,
+                        activity,
+                    });
                 if !registered {
                     warn!(
                         "WHIP: Session '{}' was cleaned up before registration (ICE failed early)",
@@ -353,6 +387,7 @@ pub async fn whip_post(
                     );
                 }
             } else {
+                cleanup_sent.store(true, Ordering::SeqCst);
                 warn!(
                     "WHIP: Unexpected Location header format: '{}', session not registered",
                     loc_str
@@ -360,6 +395,7 @@ pub async fn whip_post(
             }
         }
     } else if status.is_success() {
+        cleanup_sent.store(true, Ordering::SeqCst);
         warn!("WHIP: No Location header in successful POST response, session not registered");
     }
 
@@ -386,6 +422,7 @@ async fn forward_whip_post(
         reqwest::header::HeaderMap,
         axum::body::Bytes,
     ),
+    // Boxed: an axum `Response` Err-variant trips clippy::result_large_err.
     Box<Response>,
 > {
     let mut req = client

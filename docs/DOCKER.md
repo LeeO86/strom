@@ -58,6 +58,8 @@ full list and the CLI equivalents):
 | `STROM_DATABASE_URL` | PostgreSQL connection string (optional) — see [POSTGRESQL.md](POSTGRESQL.md) |
 | `STROM_ADMIN_USER` / `STROM_ADMIN_PASSWORD_HASH` / `STROM_API_KEY` | Authentication — see [AUTHENTICATION.md](AUTHENTICATION.md) |
 | `STROM_SERVER_ICE_SERVERS` | STUN/TURN servers for WebRTC |
+| `STROM_SERVER_ICE_TRANSPORT_POLICY` | `all` (default) or `relay` to force WebRTC through TURN |
+| `STROM_PORTS` | Port numbers the pool hands out to callers (unset = pool off) — see [PORT_POOL.md](PORT_POOL.md) |
 | `STROM_TLS_CERT` / `STROM_TLS_KEY` | Built-in TLS (PEM) |
 | `RUST_LOG` | Logging level (default `info`) |
 
@@ -70,30 +72,10 @@ No `docker-compose.yml` is committed to the repository — compose files are dep
 and gitignored. Use the worked example in [OPEN_LIVE_SETUP.md](OPEN_LIVE_SETUP.md) §5 as a
 starting point and adapt it (GPU, auth, TLS, network mode, DeckLink mounts) to your host.
 
-## MCP server in Docker
+## MCP in Docker
 
-The image bundles the standalone MCP server binary at `/app/strom-mcp-server` (stdio
-transport). The backend also serves MCP over HTTP at `/api/mcp` directly, so for most setups
-you do **not** need to run the separate binary — point your MCP client at
-`http://<host>:8080/api/mcp`. See [MCP.md](MCP.md).
-
-To run the stdio MCP server against a running backend (e.g. for Claude Desktop), it's usually
-simplest to run it on the host, pointing at the container's HTTP port:
-
-```bash
-STROM_API_URL=http://localhost:8080 ./target/release/strom-mcp-server
-```
-
-```json
-{
-  "mcpServers": {
-    "strom": {
-      "command": "/path/to/strom-mcp-server",
-      "env": { "STROM_API_URL": "http://localhost:8080" }
-    }
-  }
-}
-```
+The backend serves MCP over HTTP at `/api/mcp`, so nothing extra needs to run in the
+container — point your MCP client at `http://<host>:8080/api/mcp`. See [MCP.md](MCP.md).
 
 ## Building the image yourself
 
@@ -101,7 +83,7 @@ The [`Dockerfile`](../Dockerfile) uses a multi-stage build on Ubuntu 25.10 (Ques
 provides GStreamer 1.26 with the nvcodec fix:
 
 1. **Frontend builder** — builds the WASM frontend (platform-independent output).
-2. **Backend builder** — builds the backend and the MCP server, optionally cross-compiling
+2. **Backend builder** — builds the backend, optionally cross-compiling
    for ARM64 via Zig (targets an older glibc for broad compatibility — see
    [CROSS_COMPILE_ARM64.md](CROSS_COMPILE_ARM64.md)).
 3. **Runtime** — minimal Ubuntu with the GStreamer runtime plugins and the GL/EGL libraries

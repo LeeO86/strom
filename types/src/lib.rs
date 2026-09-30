@@ -13,15 +13,19 @@ pub const BUFFER_AGE_WARNING_THRESHOLD_MS: u64 = 3000;
 pub mod api;
 pub mod auth;
 pub mod block;
+pub mod clock_health;
 pub mod discovery;
 pub mod effects;
 pub mod element;
+pub mod env;
 pub mod events;
 pub mod flow;
 pub mod mediaplayer;
 pub mod mixer;
 pub mod mxl;
 pub mod network;
+pub mod ports;
+pub mod routing;
 pub mod state;
 pub mod stats;
 pub mod system_monitor;
@@ -40,15 +44,19 @@ pub use block::{
     CreateBlockRequest, EnumValue, ExposedProperty, ExternalPad, ExternalPads, PropertyMapping,
     PropertyType, COMMON_VIDEO_RESOLUTIONS, DECKLINK_VIDEO_FORMATS,
     DEFAULT_AES67_INPUT_BUFFER_DURATION_MS, DEFAULT_EFP_BUCKET_TIMEOUT, DEFAULT_EFP_HOL_TIMEOUT,
-    DEFAULT_EFP_MTU, DEFAULT_OPUS_BITRATE, DEFAULT_OPUS_COMPLEXITY, DEFAULT_SRT_AUTO_RECONNECT,
-    DEFAULT_SRT_INPUT_URI, DEFAULT_SRT_KEEP_LISTENING, DEFAULT_SRT_LATENCY_MS,
-    DEFAULT_SRT_OUTPUT_URI, DEFAULT_SRT_WAIT_FOR_CONNECTION,
+    DEFAULT_EFP_MTU, DEFAULT_OPUS_BITRATE, DEFAULT_OPUS_COMPLEXITY, DEFAULT_RTMP_LOCATION,
+    DEFAULT_SRT_AUTO_RECONNECT, DEFAULT_SRT_INPUT_URI, DEFAULT_SRT_KEEP_LISTENING,
+    DEFAULT_SRT_LATENCY_MS, DEFAULT_SRT_OUTPUT_URI, DEFAULT_SRT_WAIT_FOR_CONNECTION,
 };
 pub use element::{Element, ElementId, Link, MediaType, PropertyValue};
 pub use events::StromEvent;
 pub use flow::{CpuAffinity, Flow, FlowId, ThreadPriority, ThreadPriorityStatus};
 pub use network::{
     Ipv4AddressInfo, Ipv6AddressInfo, NetworkInterfaceInfo, NetworkInterfacesResponse,
+};
+pub use ports::{
+    AssignPortsRequest, CreateReservationRequest, PortEntry, PortInUse, PortPoolStatus,
+    PortReservation, PortSpan, PortState, RenewReservationRequest,
 };
 pub use state::PipelineState;
 pub use stats::{

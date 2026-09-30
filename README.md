@@ -27,15 +27,15 @@ Run this service in the cloud with a single click.
 - **Visual Pipeline Editor** - Node-based graph editor in your browser
 - **Real-time Control** - Start, stop, and monitor pipelines via REST API or WebSocket
 - **Element Discovery** - Browse and configure any installed GStreamer element
-- **Reusable Blocks** - Pre-built inputs, outputs, and processing blocks (mixers, encoders, WebRTC, AES67, SRT, NDI, DeckLink, MXL, …)
+- **Reusable Blocks** - Pre-built inputs, outputs, and processing blocks (mixers, encoders, WebRTC, RTMP, AES67, SRT, NDI, DeckLink, TAMS, MXL, …)
 - **Vision Mixer** - Broadcast-style PVW/PGM video switcher with web control UI and a GPU shader FX engine (GLSL looks, wipes, and master FX takes)
 - **Audio Mixer** - Digital mixing console with channel processing, aux sends, groups, and metering
-- **WebRTC / AES67 / SRT / NDI / DeckLink / MXL** - Wide protocol and hardware I/O coverage
+- **WebRTC / RTMP / AES67 / SRT / NDI / DeckLink / MXL** - Wide protocol and hardware I/O coverage
 - **HTML Rendering** - Render web pages as video sources using CEF (via `strom-full` Docker image)
 - **gst-launch Import/Export** - Import existing `gst-launch-1.0` commands or export flows
 - **System Monitoring** - Real-time CPU, memory, and GPU usage graphs
 - **Authentication** - Optional session login or API keys
-- **MCP Integration** - Control pipelines with AI assistants (Claude, etc.)
+- **MCP Integration** - Control pipelines with AI assistants (Claude, etc.) over the backend's own `/api/mcp` endpoint — no separate binary to install
 - **Native or Web** - Run as a desktop app or a web service
 
 Browse the full set of built-in blocks and their properties in the app's element palette and inspector.
@@ -103,7 +103,6 @@ Quick links: [Open Live setup](docs/OPEN_LIVE_SETUP.md) · [Docker](docs/DOCKER.
 - `strom-types` - Shared domain models and API types
 - `strom` - Server with GStreamer pipeline management
 - `strom-frontend` - egui UI (compiles to WASM or native)
-- `strom-mcp-server` - Model Context Protocol server for AI integration
 
 ## Configuration
 
@@ -122,7 +121,7 @@ Copy `.strom.toml.example` to `.strom.toml` for all options. Key topics have ded
 - REST + WebSocket/SSE API, with interactive OpenAPI docs at `/swagger-ui`.
 - `WS /api/ws` and `GET /api/events` for real-time state and pipeline events.
 - gst-launch import/export via `POST /api/gst-launch/parse` and `/export`.
-- Model Context Protocol at `/api/mcp` (HTTP) or the `strom-mcp-server` binary (stdio) — see [docs/MCP.md](docs/MCP.md).
+- Model Context Protocol over HTTP at `/api/mcp` — see [docs/MCP.md](docs/MCP.md).
 
 ## Built by AI
 
