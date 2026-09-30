@@ -6,7 +6,7 @@
 # mxl-not-built so it does not re-run MXL's Clang CMake presets.
 set -euo pipefail
 
-MXL_REF="${MXL_REF:-v1.1.0-beta-1}"
+MXL_REF="${MXL_REF:-v1.1.0}"
 MXL_REPO="${MXL_REPO:-https://github.com/dmf-mxl/mxl.git}"
 PREFIX="${INSTALL_PREFIX:-/usr/local}"
 WORK_DIR="${WORK_DIR:-/tmp/mxl-sdk-build}"

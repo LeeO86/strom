@@ -236,7 +236,7 @@ fi && \
 # Built for the target platform. Strom loads gstmxl at runtime; the SDK is
 # not a compile-time crate dependency (gstreamer-rs 0.24 vs Strom 0.25).
 FROM ubuntu:questing AS mxl-sdk
-ARG MXL_REF=v1.1.0-beta-1
+ARG MXL_REF=v1.1.0
 ENV DEBIAN_FRONTEND=noninteractive \
     MXL_REF=${MXL_REF} \
     VCPKG_ROOT=/opt/vcpkg \
