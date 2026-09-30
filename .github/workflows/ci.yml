@@ -376,16 +376,16 @@ jobs:
           # Zig 0.13 and cargo-zigbuild 0.22.3 reject that flag.
           sudo ln -sfn /usr/local/zig-linux-aarch64-${ZIG_VERSION}/zig /usr/local/bin/zig.bin
           sudo tee /usr/local/bin/zig >/dev/null << 'EOF'
-#!/bin/bash
-args=()
-for arg in "$@"; do
-  case "$arg" in
-    -Wl,--fix-cortex-a53-843419|--fix-cortex-a53-843419) ;;
-    *) args+=("$arg") ;;
-  esac
-done
-exec /usr/local/bin/zig.bin "${args[@]}"
-EOF
+          #!/bin/bash
+          args=()
+          for arg in "$@"; do
+            case "$arg" in
+              -Wl,--fix-cortex-a53-843419|--fix-cortex-a53-843419) ;;
+              *) args+=("$arg") ;;
+            esac
+          done
+          exec /usr/local/bin/zig.bin "${args[@]}"
+          EOF
           sudo chmod 0755 /usr/local/bin/zig
 
           CZB_VERSION="0.22.3"
