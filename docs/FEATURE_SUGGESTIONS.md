@@ -27,6 +27,11 @@ interests you, open a GitHub issue or discussion.
 - **Undo/redo** and **drag-drop flow import** in the editor.
 - **Connection validation hints** — pre-flight checks for element compatibility and required
   properties before starting.
+- **Restart a flow on error** — `auto_restart` today only means "start again when the
+  backend starts". A supervised restart after a runtime error, with backoff, would need to
+  tell transient failures (a lost SRT peer, a network drop) from permanent ones (a wrong
+  video profile, raw video into an output that needs it encoded), so that a configuration
+  mistake stops with its message instead of looping.
 
 ## Encoding & integration
 
@@ -40,13 +45,21 @@ interests you, open a GitHub issue or discussion.
 ## Intelligence & collaboration
 
 - **AI troubleshooting (enhanced MCP)** — natural-language pipeline creation, error diagnosis
-  from QoS data, and best-practice/anti-pattern detection on top of the existing MCP server.
+  from QoS data, and best-practice/anti-pattern detection on top of the existing MCP endpoint.
 - **Flow version control** — git-like history with visual diff and one-click rollback.
 - **Multi-user collaboration** — real-time co-editing, presence, role-based permissions, and
   audit logging.
 
 ## Platform & reach
 
+- **Publish straight to the big live platforms** — take Strom's RTMP output to YouTube Live
+  and Twitch and write down what an operator has to set. The transport side has landed: the
+  RTMP Output block speaks `rtmp` and `rtmps` and keeps the query string Twitch's
+  `?bandwidthtest=true` rides on, so a test broadcast can be verified in Twitch Inspector
+  without going live. What is left is the operator write-up. The encoder side is handled: the
+  Video Encoder block now defaults to the codec's 8-bit 4:2:0 profile, which both ingests
+  accept, instead of following the input's pixel format into one they refuse. Both platforms
+  also want an audio track and roughly 2-second keyframes.
 - **Kubernetes operator** — deploy flows as pods with resource limits and auto-scaling.
 - **Block marketplace** — browse and install community-contributed blocks.
 - **Mobile companion** — monitor status, start/stop flows, and receive alerts from a phone.

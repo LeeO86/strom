@@ -19,6 +19,8 @@ const AES67_INPUT_DEFAULT_BUFFER_DURATION_MS: i64 =
 // AES67 Output defaults
 const AES67_OUTPUT_DEFAULT_TTL: i64 = 32;
 const AES67_OUTPUT_DEFAULT_QOS_DSCP: &str = "0x2E"; // DSCP EF (Expedited Forwarding) per AES67 standard
+const AES67_OUTPUT_DEFAULT_PAYLOAD_TYPE: i64 =
+    strom_types::block::DEFAULT_AES67_OUTPUT_PAYLOAD_TYPE;
 
 /// Parse DSCP value from string (hex like "0x2E" or "disabled")
 /// Returns the integer value for udpsink qos-dscp property
@@ -547,6 +549,37 @@ impl BlockBuilder for AES67InputBuilder {
     }
 }
 
+/// Largest RTP payload an AES67 packet may carry: 1500 MTU - 20 IP - 8 UDP -
+/// 12 RTP - ~20 safety margin.
+const MAX_RTP_PAYLOAD_BYTES: i64 = 1440;
+
+/// Reject a ptime that makes one RTP packet larger than the Ethernet MTU allows.
+///
+/// Payload size = framecount x channels x bytes_per_sample, where
+/// framecount = ptime_ms x sample_rate / 1000.
+fn check_rtp_payload_size(
+    channels: i64,
+    bit_depth: i64,
+    sample_rate: i64,
+    ptime_ms: f64,
+) -> Result<(), BlockBuildError> {
+    let bytes_per_sample = bit_depth / 8;
+    let framecount = (ptime_ms * sample_rate as f64 / 1000.0).round() as i64;
+    let payload_size = framecount * channels * bytes_per_sample;
+
+    if payload_size > MAX_RTP_PAYLOAD_BYTES {
+        let max_framecount = MAX_RTP_PAYLOAD_BYTES / (channels * bytes_per_sample);
+        let max_ptime_ms = max_framecount as f64 * 1000.0 / sample_rate as f64;
+        return Err(BlockBuildError::InvalidConfiguration(format!(
+            "RTP packet too large: {} bytes (max {}). With {} channels at {}-bit, \
+             ptime {}ms produces {} samples/packet. Maximum ptime for this configuration is {:.3}ms.",
+            payload_size, MAX_RTP_PAYLOAD_BYTES, channels, bit_depth,
+            ptime_ms, framecount, max_ptime_ms
+        )));
+    }
+    Ok(())
+}
+
 /// AES67 Output block builder.
 pub struct AES67OutputBuilder;
 
@@ -663,25 +696,31 @@ impl BlockBuilder for AES67OutputBuilder {
             })
             .unwrap_or_else(|| parse_dscp_value(AES67_OUTPUT_DEFAULT_QOS_DSCP));
 
-        // Validate packet size fits within AES67/Ethernet MTU constraints
-        // RTP payload must fit in ~1440 bytes (1500 MTU - 20 IP - 8 UDP - 12 RTP - ~20 safety margin)
-        // Payload size = framecount × channels × bytes_per_sample
-        // framecount = ptime_ms × sample_rate / 1000
-        const MAX_RTP_PAYLOAD_BYTES: i64 = 1440;
-        let bytes_per_sample = bit_depth / 8;
-        let framecount = (ptime_ms * sample_rate as f64 / 1000.0).round() as i64;
-        let payload_size = framecount * channels * bytes_per_sample;
+        let payload_type = properties
+            .get("payload_type")
+            .and_then(|v| match v {
+                PropertyValue::Int(i) => Some(*i),
+                PropertyValue::String(s) => s.parse::<i64>().ok(),
+                _ => None,
+            })
+            .unwrap_or(AES67_OUTPUT_DEFAULT_PAYLOAD_TYPE);
 
-        if payload_size > MAX_RTP_PAYLOAD_BYTES {
-            let max_framecount = MAX_RTP_PAYLOAD_BYTES / (channels * bytes_per_sample);
-            let max_ptime_ms = max_framecount as f64 * 1000.0 / sample_rate as f64;
+        if !(0..=127).contains(&payload_type) {
             return Err(BlockBuildError::InvalidConfiguration(format!(
-                "RTP packet too large: {} bytes (max {}). With {} channels at {}-bit, \
-                 ptime {}ms produces {} samples/packet. Maximum ptime for this configuration is {:.3}ms.",
-                payload_size, MAX_RTP_PAYLOAD_BYTES, channels, bit_depth,
-                ptime_ms, framecount, max_ptime_ms
+                "Invalid RTP payload type: {}. Must be between 0 and 127.",
+                payload_type
             )));
         }
+
+        if !(96..=127).contains(&payload_type) {
+            warn!(
+                "AES67 Output [{}]: Payload type {} is outside the dynamic range (96-127). \
+                 AES67 requires a dynamic payload type for L16/L24 streams; receivers may reject the stream.",
+                instance_id, payload_type
+            );
+        }
+
+        check_rtp_payload_size(channels, bit_depth, sample_rate, ptime_ms)?;
 
         // Create namespaced element IDs
         let audioconvert_id = format!("{}:audioconvert", instance_id);
@@ -730,6 +769,7 @@ impl BlockBuilder for AES67OutputBuilder {
         let payloader = gst::ElementFactory::make(payloader_type)
             .name(&payloader_id)
             .property("timestamp-offset", 0u32)
+            .property("pt", payload_type as u32)
             .property("min-ptime", ptime_ns)
             .property("max-ptime", ptime_ns)
             .build()
@@ -762,8 +802,8 @@ impl BlockBuilder for AES67OutputBuilder {
         }
 
         debug!(
-            "AES67 Output [{}]: Multicast TTL={}, QoS DSCP={}",
-            instance_id, ttl, qos_dscp
+            "AES67 Output [{}]: Multicast TTL={}, QoS DSCP={}, payload type={}",
+            instance_id, ttl, qos_dscp, payload_type
         );
 
         let udpsink = udpsink_builder
@@ -1029,6 +1069,20 @@ fn aes67_output_definition() -> BlockDefinition {
                 persist: None,
             },
             ExposedProperty {
+                name: "payload_type".to_string(),
+                label: "Payload Type".to_string(),
+                description: "RTP payload type used in the packets and announced in the SDP. Must be in the dynamic range 96-127 for AES67.".to_string(),
+                property_type: PropertyType::Int,
+                default_value: Some(PropertyValue::Int(AES67_OUTPUT_DEFAULT_PAYLOAD_TYPE)),
+                mapping: PropertyMapping {
+                    element_id: "_block".to_string(),
+                    property_name: "payload_type".to_string(),
+                    transform: None,
+                },
+                live: false,
+                persist: None,
+            },
+            ExposedProperty {
                 name: "host".to_string(),
                 label: "Multicast Address".to_string(),
                 description: "Destination multicast IP address".to_string(),
@@ -1214,46 +1268,106 @@ mod tests {
         assert_eq!(parse_dscp_value(""), -1);
     }
 
-    /// Helper to calculate max ptime for given configuration
-    fn max_ptime_ms(channels: i64, bit_depth: i64, sample_rate: i64) -> f64 {
-        const MAX_RTP_PAYLOAD_BYTES: i64 = 1440;
-        let bytes_per_sample = bit_depth / 8;
-        let max_framecount = MAX_RTP_PAYLOAD_BYTES / (channels * bytes_per_sample);
-        max_framecount as f64 * 1000.0 / sample_rate as f64
+    /// Table of (channels, bit_depth, ptime_ms, fits) at 48 kHz, on both sides
+    /// of the 1440-byte payload limit.
+    #[test]
+    fn test_rtp_payload_size_limit() {
+        let cases: &[(i64, i64, f64, bool)] = &[
+            // 2ch 24-bit: 240 frames x 6 bytes = 1440, exactly at the limit
+            (2, 24, 5.0, true),
+            (2, 24, 1.0, true),
+            // 8ch 24-bit: 1ms = 48 x 24 = 1152 fits, 2ms = 2304 does not
+            (8, 24, 1.0, true),
+            (8, 24, 2.0, false),
+            // 16ch 24-bit: 0.5ms = 24 x 48 = 1152 fits, 1ms = 2304 does not
+            (16, 24, 0.5, true),
+            (16, 24, 1.0, false),
+            // 64ch 24-bit: 0.125ms = 6 x 192 = 1152 fits, 0.25ms = 2304 does not
+            (64, 24, 0.125, true),
+            (64, 24, 0.25, false),
+            // 64ch 16-bit: 0.125ms = 6 x 128 = 768 fits where 24-bit 0.25ms did not;
+            // 0.25ms = 12 x 128 = 1536 still does not
+            (64, 16, 0.125, true),
+            (64, 16, 0.25, false),
+        ];
+        for &(channels, bit_depth, ptime, fits) in cases {
+            let result = check_rtp_payload_size(channels, bit_depth, 48000, ptime);
+            match (fits, result) {
+                (true, Ok(())) => {}
+                (false, Err(BlockBuildError::InvalidConfiguration(msg))) => {
+                    assert!(msg.contains("RTP packet too large"), "{}", msg)
+                }
+                (fits, other) => panic!(
+                    "{}ch {}-bit {}ms: expected fits={}, got {:?}",
+                    channels, bit_depth, ptime, fits, other
+                ),
+            }
+        }
     }
 
+    /// The builder must run the payload-size check: 8 channels at 2ms is
+    /// rejected before any element is created.
     #[test]
-    fn test_aes67_packet_size_limits() {
-        // 2 channels, 24-bit, 48kHz: max = 1440 / (2*3) = 240 samples = 5ms
-        assert!(max_ptime_ms(2, 24, 48000) >= 5.0);
+    fn test_aes67_output_build_rejects_oversized_packet() {
+        let _ = gst::init();
+        let mut properties = HashMap::new();
+        properties.insert("channels".to_string(), PropertyValue::Int(8));
+        properties.insert("ptime".to_string(), PropertyValue::Float(2.0));
+        let ctx = BlockBuildContext::new(Vec::new(), "all".to_string());
 
-        // 8 channels, 24-bit, 48kHz: max = 1440 / (8*3) = 60 samples = 1.25ms
-        let max_8ch = max_ptime_ms(8, 24, 48000);
-        assert!(max_8ch >= 1.0, "8ch should allow at least 1ms ptime");
-        assert!(max_8ch < 2.0, "8ch should not allow 2ms ptime");
-
-        // 16 channels, 24-bit, 48kHz: max = 1440 / (16*3) = 30 samples = 0.625ms
-        let max_16ch = max_ptime_ms(16, 24, 48000);
-        assert!(max_16ch >= 0.5, "16ch should allow at least 0.5ms ptime");
-        assert!(max_16ch < 1.0, "16ch should not allow 1ms ptime");
-
-        // 64 channels, 24-bit, 48kHz: max = 1440 / (64*3) = 7 samples = 0.146ms
-        let max_64ch = max_ptime_ms(64, 24, 48000);
-        assert!(
-            max_64ch >= 0.125,
-            "64ch should allow at least 0.125ms ptime"
-        );
-        assert!(max_64ch < 0.25, "64ch should not allow 0.25ms ptime");
+        match AES67OutputBuilder.build("aes67-out-test", &properties, &ctx) {
+            Err(BlockBuildError::InvalidConfiguration(msg)) => {
+                assert!(msg.contains("RTP packet too large"), "{}", msg)
+            }
+            Err(other) => panic!("rejected by the wrong check: {:?}", other),
+            Ok(_) => panic!("8ch at 2ms was accepted"),
+        }
     }
 
+    /// The builder must reject an RTP payload type outside the 7-bit range
+    /// (0-127) before it creates a single GStreamer element.
+    ///
+    /// This guards more than a malformed SDP. With the check removed, the build
+    /// walks on to `.property("pt", payload_type as u32)` on the payloader and
+    /// glib panics there — "property 'pt' of type 'GstRtpL24Pay' can't be set
+    /// from given value" — so the range check is what stops a stored
+    /// out-of-range value from taking the process down. GStreamer does not
+    /// clamp it.
+    ///
+    /// The variant and message are asserted rather than just `is_err()`, so a
+    /// rejection from a later check (packet size, bit depth) cannot stand in
+    /// for this one. `gst::init` is called because the panic above only
+    /// reproduces with GStreamer initialised; otherwise element creation aborts
+    /// on the uninitialised library first, which depends on whether another
+    /// test in this binary happened to initialise it.
     #[test]
-    fn test_aes67_packet_size_16bit() {
-        // 16-bit allows more channels per packet
-        // 64 channels, 16-bit, 48kHz: max = 1440 / (64*2) = 11 samples = 0.229ms
-        let max_64ch_16bit = max_ptime_ms(64, 16, 48000);
-        assert!(
-            max_64ch_16bit > max_ptime_ms(64, 24, 48000),
-            "16-bit should allow longer ptime than 24-bit"
-        );
+    fn test_aes67_output_rejects_out_of_range_payload_type() {
+        let _ = gst::init();
+
+        let builder = AES67OutputBuilder;
+        let ctx = BlockBuildContext::new(Vec::new(), "all".to_string());
+
+        for pt in [-1, 128, 200] {
+            let mut properties = HashMap::new();
+            properties.insert("payload_type".to_string(), PropertyValue::Int(pt));
+
+            let result = builder.build("aes67-out-test", &properties, &ctx);
+
+            match result {
+                Err(BlockBuildError::InvalidConfiguration(msg)) => {
+                    assert!(
+                        msg.contains("payload type") && msg.contains(&pt.to_string()),
+                        "payload type {} was rejected, but not by the range check: {}",
+                        pt,
+                        msg
+                    );
+                }
+                Err(other) => panic!(
+                    "payload type {} was rejected by the wrong check: {:?}",
+                    pt, other
+                ),
+                Ok(_) => panic!("payload type {} was accepted", pt),
+            }
+        }
     }
 }

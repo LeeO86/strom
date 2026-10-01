@@ -18,6 +18,9 @@ pub(super) fn build_cpu_pipeline(
     let mut elems: Vec<(String, gst::Element)> = Vec::new();
     let mut links: Vec<(ElementPadRef, ElementPadRef)> = Vec::new();
 
+    // Conversion element for this host — see the DSK chain below for why.
+    let vc_factory = gpu::video_convert_mode().element_name();
+
     let dist_comp = elements::make_dist_compositor(p.backend, p.latency_ms, p.min_upstream_ms)?;
     let mv_comp = elements::make_mv_compositor(p.backend, p.latency_ms, p.min_upstream_ms)?;
 
@@ -65,10 +68,55 @@ pub(super) fn build_cpu_pipeline(
     elems.push((tee_pgm_id.clone(), tee_pgm));
     elems.push((q_dist_out_id.clone(), queue_dist_out));
 
-    links.push((
-        ElementPadRef::pad(&mixer_id, "src"),
-        ElementPadRef::pad(&cf_dist_id, "sink"),
-    ));
+    // Keyed pads on the dist compositor: DSK graphics, and the border
+    // underlays that carry #RRGGBBAA colors. When they are present and
+    // output_format cannot hold alpha, blend in the alpha-carrying
+    // counterpart and convert to output_format after the mixer — pinning
+    // output_format on the mixer itself would flatten the key.
+    let dist_keyed = p.num_dsk_inputs > 0 || p.num_pips > 0;
+    let dist_blend_format = if dist_keyed {
+        p.alpha_blend_format()
+    } else {
+        None
+    };
+    if let Some(blend_fmt) = dist_blend_format {
+        let cf_blend_id = p.id("capsfilter_dist_blend");
+        let capsfilter_blend = gst::ElementFactory::make("capsfilter")
+            .name(&cf_blend_id)
+            .property("caps", p.pgm_blend_caps(blend_fmt))
+            .build()
+            .map_err(|e| {
+                BlockBuildError::ElementCreation(format!("capsfilter_dist_blend: {}", e))
+            })?;
+        let vc_dist_out_id = p.id("videoconvert_dist_out");
+        let videoconvert_dist_out = elements::make_element(vc_factory, &vc_dist_out_id)?;
+        elems.push((cf_blend_id.clone(), capsfilter_blend));
+        elems.push((vc_dist_out_id.clone(), videoconvert_dist_out));
+        info!(
+            "Vision mixer {}: blending in {} for keyed pads, converting to {} on output",
+            p.instance_id,
+            blend_fmt,
+            p.output_format.as_deref().unwrap_or("auto")
+        );
+
+        links.push((
+            ElementPadRef::pad(&mixer_id, "src"),
+            ElementPadRef::pad(&cf_blend_id, "sink"),
+        ));
+        links.push((
+            ElementPadRef::pad(&cf_blend_id, "src"),
+            ElementPadRef::pad(&vc_dist_out_id, "sink"),
+        ));
+        links.push((
+            ElementPadRef::pad(&vc_dist_out_id, "src"),
+            ElementPadRef::pad(&cf_dist_id, "sink"),
+        ));
+    } else {
+        links.push((
+            ElementPadRef::pad(&mixer_id, "src"),
+            ElementPadRef::pad(&cf_dist_id, "sink"),
+        ));
+    }
     links.push((
         ElementPadRef::pad(&cf_dist_id, "src"),
         ElementPadRef::pad(&tee_pgm_id, "sink"),
@@ -98,7 +146,6 @@ pub(super) fn build_cpu_pipeline(
     elems.push((cf_pgm_mv_id.clone(), capsfilter_pgm_mv));
 
     // DSK input element chains (links to mixer added later after video inputs)
-    let vc_factory = gpu::video_convert_mode().element_name();
     for i in 0..p.num_dsk_inputs {
         let q_id = p.id(&format!("queue_dsk_{}", i));
         let vc_id_dsk = p.id(&format!("videoconvert_dsk_{}", i));
@@ -109,6 +156,7 @@ pub(super) fn build_cpu_pipeline(
         // so that upstream GPU-memory sources (e.g. nvh264dec from efpsrt_input)
         // negotiate correctly against the CPU compositor backend.
         let videoconvert = elements::make_element(vc_factory, &vc_id_dsk)?;
+        gpu::configure_video_convert(&videoconvert);
 
         elems.push((q_id.clone(), queue));
         elems.push((vc_id_dsk.clone(), videoconvert));
@@ -118,27 +166,12 @@ pub(super) fn build_cpu_pipeline(
             ElementPadRef::pad(&vc_id_dsk, "sink"),
         ));
 
-        // When output_format is specified, force DSK inputs to match — same as video inputs.
-        if let Some(ref fmt) = p.output_format {
-            let cf_dsk_id = p.id(&format!("capsfilter_dsk_{}", i));
-            let capsfilter_dsk = gst::ElementFactory::make("capsfilter")
-                .name(&cf_dsk_id)
-                .property(
-                    "caps",
-                    gst::Caps::builder("video/x-raw")
-                        .field("format", fmt.as_str())
-                        .build(),
-                )
-                .build()
-                .map_err(|e| {
-                    BlockBuildError::ElementCreation(format!("capsfilter_dsk_{}: {}", i, e))
-                })?;
-            elems.push((cf_dsk_id.clone(), capsfilter_dsk));
-            links.push((
-                ElementPadRef::pad(&vc_id_dsk, "src"),
-                ElementPadRef::pad(&cf_dsk_id, "sink"),
-            ));
-        }
+        // No output_format capsfilter here. A DSK is a keyer: forcing an
+        // alpha-less format (I420/NV12) ahead of the compositor silently
+        // flattens the graphic's per-pixel alpha and paints its RGB opaquely
+        // over the program. Video inputs need the pin because their tee feeds
+        // two independently negotiating compositors; a DSK links straight to
+        // one compositor pad, so its convert pad handles the conversion.
     }
 
     // --- Multiview output chain (no gldownload needed for CPU) ---
@@ -159,10 +192,39 @@ pub(super) fn build_cpu_pipeline(
     elems.push((tee_mv_id.clone(), tee_mv));
     elems.push((q_mv_out_id.clone(), queue_mv_out));
 
-    links.push((
-        ElementPadRef::pad(&mv_comp_id, "src"),
-        ElementPadRef::pad(&cf_mv_id, "sink"),
-    ));
+    // The multiview overlay (labels, VU meters, tallies) is an RGBA pad on
+    // mv_comp, so the multiview always has a keyed pad — same treatment as the
+    // dist compositor above.
+    if let Some(blend_fmt) = p.alpha_blend_format() {
+        let cf_blend_id = p.id("capsfilter_mv_blend");
+        let capsfilter_blend = gst::ElementFactory::make("capsfilter")
+            .name(&cf_blend_id)
+            .property("caps", p.mv_blend_caps(blend_fmt))
+            .build()
+            .map_err(|e| BlockBuildError::ElementCreation(format!("capsfilter_mv_blend: {}", e)))?;
+        let vc_mv_out_id = p.id("videoconvert_mv_out");
+        let videoconvert_mv_out = elements::make_element(vc_factory, &vc_mv_out_id)?;
+        elems.push((cf_blend_id.clone(), capsfilter_blend));
+        elems.push((vc_mv_out_id.clone(), videoconvert_mv_out));
+
+        links.push((
+            ElementPadRef::pad(&mv_comp_id, "src"),
+            ElementPadRef::pad(&cf_blend_id, "sink"),
+        ));
+        links.push((
+            ElementPadRef::pad(&cf_blend_id, "src"),
+            ElementPadRef::pad(&vc_mv_out_id, "sink"),
+        ));
+        links.push((
+            ElementPadRef::pad(&vc_mv_out_id, "src"),
+            ElementPadRef::pad(&cf_mv_id, "sink"),
+        ));
+    } else {
+        links.push((
+            ElementPadRef::pad(&mv_comp_id, "src"),
+            ElementPadRef::pad(&cf_mv_id, "sink"),
+        ));
+    }
     links.push((
         ElementPadRef::pad(&cf_mv_id, "src"),
         ElementPadRef::pad(&tee_mv_id, "sink"),
@@ -200,45 +262,18 @@ pub(super) fn build_cpu_pipeline(
     elems.push((q_overlay_id.clone(), queue_overlay));
     elems.push((vc_overlay_id.clone(), videoconvert_overlay));
 
-    // Optional capsfilter to match compositor output format
-    let overlay_last_id = if let Some(ref fmt) = p.output_format {
-        let cf_overlay_id = p.id("capsfilter_overlay");
-        let capsfilter_overlay = gst::ElementFactory::make("capsfilter")
-            .name(&cf_overlay_id)
-            .property(
-                "caps",
-                gst::Caps::builder("video/x-raw")
-                    .field("format", fmt.as_str())
-                    .build(),
-            )
-            .build()
-            .map_err(|e| BlockBuildError::ElementCreation(format!("capsfilter_overlay: {}", e)))?;
-        elems.push((cf_overlay_id.clone(), capsfilter_overlay));
-
-        links.push((
-            ElementPadRef::pad(&appsrc_overlay_id, "src"),
-            ElementPadRef::pad(&q_overlay_id, "sink"),
-        ));
-        links.push((
-            ElementPadRef::pad(&q_overlay_id, "src"),
-            ElementPadRef::pad(&vc_overlay_id, "sink"),
-        ));
-        links.push((
-            ElementPadRef::pad(&vc_overlay_id, "src"),
-            ElementPadRef::pad(&cf_overlay_id, "sink"),
-        ));
-        cf_overlay_id
-    } else {
-        links.push((
-            ElementPadRef::pad(&appsrc_overlay_id, "src"),
-            ElementPadRef::pad(&q_overlay_id, "sink"),
-        ));
-        links.push((
-            ElementPadRef::pad(&q_overlay_id, "src"),
-            ElementPadRef::pad(&vc_overlay_id, "sink"),
-        ));
-        vc_overlay_id.clone()
-    };
+    // No output_format capsfilter here either: the overlay is RGBA with
+    // per-pixel alpha, and pinning it to an alpha-less format would composite
+    // its transparent areas opaquely over the multiview.
+    links.push((
+        ElementPadRef::pad(&appsrc_overlay_id, "src"),
+        ElementPadRef::pad(&q_overlay_id, "sink"),
+    ));
+    links.push((
+        ElementPadRef::pad(&q_overlay_id, "src"),
+        ElementPadRef::pad(&vc_overlay_id, "sink"),
+    ));
+    let overlay_last_id = vc_overlay_id;
     // Link to mv_comp is added AFTER all other mv_comp links (pad ordering matters)
 
     // --- Border underlay sources ---
@@ -306,47 +341,39 @@ pub(super) fn build_cpu_pipeline(
 
         // Capsfilter after videoconvert forces all inputs to the same format before tee split.
         // Without this, the two compositors negotiate independently and tee can't satisfy both.
-        if let Some(ref fmt) = p.output_format {
-            let cf_in_id = p.id(&format!("capsfilter_in_{}", i));
-            let capsfilter_in = gst::ElementFactory::make("capsfilter")
-                .name(&cf_in_id)
-                .property(
-                    "caps",
-                    gst::Caps::builder("video/x-raw")
-                        .field("format", fmt.as_str())
-                        .build(),
-                )
-                .build()
-                .map_err(|e| {
-                    BlockBuildError::ElementCreation(format!("capsfilter_in_{}: {}", i, e))
-                })?;
-            elems.push((cf_in_id.clone(), capsfilter_in));
-            elems.push((tee_id.clone(), tee));
+        //
+        // With no output_format, the filter still limits the tee to formats
+        // videocrop takes: the dist and PVW branches run through it, the
+        // thumbnail branch does not. Left open, the input can settle on a
+        // format only the compositors accept (A444_16LE on GStreamer 1.26),
+        // and the videocrop branches then fail with not-negotiated.
+        let in_caps = match p.output_format {
+            Some(ref fmt) => gst::Caps::builder("video/x-raw")
+                .field("format", fmt.as_str())
+                .build(),
+            None => videocrop_sink_caps()?,
+        };
+        let cf_in_id = p.id(&format!("capsfilter_in_{}", i));
+        let capsfilter_in = gst::ElementFactory::make("capsfilter")
+            .name(&cf_in_id)
+            .property("caps", &in_caps)
+            .build()
+            .map_err(|e| BlockBuildError::ElementCreation(format!("capsfilter_in_{}: {}", i, e)))?;
+        elems.push((cf_in_id.clone(), capsfilter_in));
+        elems.push((tee_id.clone(), tee));
 
-            links.push((
-                ElementPadRef::pad(&q_id, "src"),
-                ElementPadRef::pad(&vc_in_id, "sink"),
-            ));
-            links.push((
-                ElementPadRef::pad(&vc_in_id, "src"),
-                ElementPadRef::pad(&cf_in_id, "sink"),
-            ));
-            links.push((
-                ElementPadRef::pad(&cf_in_id, "src"),
-                ElementPadRef::pad(&tee_id, "sink"),
-            ));
-        } else {
-            elems.push((tee_id.clone(), tee));
-
-            links.push((
-                ElementPadRef::pad(&q_id, "src"),
-                ElementPadRef::pad(&vc_in_id, "sink"),
-            ));
-            links.push((
-                ElementPadRef::pad(&vc_in_id, "src"),
-                ElementPadRef::pad(&tee_id, "sink"),
-            ));
-        }
+        links.push((
+            ElementPadRef::pad(&q_id, "src"),
+            ElementPadRef::pad(&vc_in_id, "sink"),
+        ));
+        links.push((
+            ElementPadRef::pad(&vc_in_id, "src"),
+            ElementPadRef::pad(&cf_in_id, "sink"),
+        ));
+        links.push((
+            ElementPadRef::pad(&cf_in_id, "src"),
+            ElementPadRef::pad(&tee_id, "sink"),
+        ));
 
         // Queues after tee decouple input processing from compositor backpressure
         let q_dist_id = p.id(&format!("queue_to_dist_{}", i));
@@ -404,11 +431,7 @@ pub(super) fn build_cpu_pipeline(
         ));
     }
     for i in 0..p.num_dsk_inputs {
-        let last_dsk_elem = if p.output_format.is_some() {
-            p.id(&format!("capsfilter_dsk_{}", i))
-        } else {
-            p.id(&format!("videoconvert_dsk_{}", i))
-        };
+        let last_dsk_elem = p.id(&format!("videoconvert_dsk_{}", i));
         links.push((
             ElementPadRef::pad(&last_dsk_elem, "src"),
             ElementPadRef::pad(&mixer_id, format!("sink_{}", p.num_inputs + i)),
@@ -573,4 +596,38 @@ pub(super) fn build_cpu_pipeline(
         bus_message_handler,
         pad_properties,
     })
+}
+
+/// System-memory caps `videocrop` can actually crop, read from its sink pad
+/// template so the list follows the installed GStreamer version.
+///
+/// The template also carries `video/x-raw(ANY)` with no format list, for crop
+/// meta on other memory types. That structure matches system memory too, so
+/// it is dropped here: `videocrop` accepts any format through it at caps query
+/// time and then refuses the ones it cannot crop in `set_info`.
+fn videocrop_sink_caps() -> Result<gst::Caps, BlockBuildError> {
+    let template = gst::ElementFactory::find("videocrop")
+        .ok_or_else(|| BlockBuildError::ElementCreation("videocrop not found".to_string()))?
+        .static_pad_templates()
+        .into_iter()
+        .find(|t| t.direction() == gst::PadDirection::Sink)
+        .ok_or_else(|| {
+            BlockBuildError::ElementCreation("videocrop has no sink template".to_string())
+        })?
+        .caps();
+    let mut caps = gst::Caps::new_empty();
+    {
+        let caps = caps.get_mut().expect("new caps are writable");
+        for (s, features) in template.iter_with_features() {
+            if !features.is_any() {
+                caps.append_structure_full(s.to_owned(), Some(features.to_owned()));
+            }
+        }
+    }
+    if caps.is_empty() {
+        return Err(BlockBuildError::ElementCreation(
+            "videocrop sink template lists no system-memory formats".to_string(),
+        ));
+    }
+    Ok(caps)
 }

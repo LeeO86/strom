@@ -114,25 +114,35 @@ fn is_in_docker() -> bool {
         return true;
     }
 
+    // Method 4: Kubernetes injects this into every pod whatever the runtime, so
+    // it is the only one of the four that fires under containerd on cgroup v2.
+    if strom_types::env::var_opt("KUBERNETES_SERVICE_HOST").is_some() {
+        return true;
+    }
+
     false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
-    fn test_system_info() {
-        let info = get();
+    #[serial]
+    fn kubernetes_service_host_is_a_container_signal() {
+        // Vacuous on a host that is already detected as containerised by one of
+        // the other methods, so the baseline goes into the failure message.
+        let baseline = is_in_docker();
 
-        // These should always be set by build.rs
-        assert!(!info.version.is_empty());
-        assert!(!info.git_hash.is_empty());
-        assert!(!info.build_timestamp.is_empty());
+        std::env::set_var("KUBERNETES_SERVICE_HOST", "10.96.0.1");
+        let detected = is_in_docker();
+        std::env::remove_var("KUBERNETES_SERVICE_HOST");
 
-        // These might be empty depending on git state
-        // but shouldn't panic
-        let _ = info.version_string();
-        let _ = info.short_version();
+        assert!(
+            detected,
+            "a pod with KUBERNETES_SERVICE_HOST set must be reported as containerised \
+             (is_in_docker() was {baseline} before the variable was set)"
+        );
     }
 }

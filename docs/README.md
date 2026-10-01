@@ -6,14 +6,18 @@ Common questions are answered in the [FAQ](FAQ.md).
 ## Getting started & deployment
 
 - [OPEN_LIVE_SETUP.md](OPEN_LIVE_SETUP.md) — guided setup for running a local Strom instance (Docker, GPU, ICE, auth). Good first stop for operators.
+- [HARDWARE_REQUIREMENTS.md](HARDWARE_REQUIREMENTS.md) — CPU/GPU/RAM sizing. WIP: derived, not
+  measured — add your own field reports.
 - [DOCKER.md](DOCKER.md) — generic Docker deployment reference.
 - [DOCKER_GPU_SETUP.md](DOCKER_GPU_SETUP.md) — NVIDIA GPU acceleration (NVENC/NVDEC, CUDA-GL interop, container toolkit).
 - [AUTHENTICATION.md](AUTHENTICATION.md) — session login and API keys.
 - [POSTGRESQL.md](POSTGRESQL.md) — PostgreSQL storage backend for production.
+- [PORT_POOL.md](PORT_POOL.md) — port numbers Strom hands out to callers sharing one instance.
 
 ## Using Strom
 
 - [VISION_MIXER_OPERATOR_GUIDE.md](VISION_MIXER_OPERATOR_GUIDE.md) — broadcast PVW/PGM switcher: transitions, DSK, PiP, multiview.
+- [PRODUCER_SWITCHING_API_GUIDE.md](PRODUCER_SWITCHING_API_GUIDE.md) — driving the vision mixer over HTTP: PiP layout recipes, on-air edits, failure modes.
 - [AUDIO_MIXER_OPERATOR_GUIDE.md](AUDIO_MIXER_OPERATOR_GUIDE.md) — audio mixing console signal flow and operation.
 - [HTML_RENDER.md](HTML_RENDER.md) — render web pages as video sources (CEF / `strom-full`).
 - [NMOS_MXL.md](NMOS_MXL.md) — connect MXL inputs and outputs with an NMOS controller (IS-04 / IS-05).
@@ -25,7 +29,7 @@ palette and inspector — the code is the source of truth. Older block design wr
 
 ## API & integration
 
-- [MCP.md](MCP.md) — Model Context Protocol server (AI assistant integration).
+- [MCP.md](MCP.md) — Model Context Protocol endpoint (AI assistant integration).
 - [INTEGRATION.md](INTEGRATION.md) — MCP / OpenAPI integration overview.
 - Interactive OpenAPI docs are served at `/swagger-ui` on a running instance.
 

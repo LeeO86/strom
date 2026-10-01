@@ -19,6 +19,9 @@ A Linux host (Ubuntu 22.04+ or equivalent) with:
 - An NVIDIA GPU — **highly preferred** for hardware-accelerated encode/decode and GPU compositing. Optional, but production deployments should plan for one; software fallbacks do not scale.
 - Optional: a Blackmagic DeckLink card for SDI I/O
 
+For sizing guidance — what drives CPU/GPU load and which GPU generations support what — see
+[HARDWARE_REQUIREMENTS.md](HARDWARE_REQUIREMENTS.md).
+
 ---
 
 ## 2. Pull and Run Strom
@@ -230,6 +233,14 @@ This is the port Open Live needs reachable. Override it with `STROM_PORT` or `--
 
 Media-plane ports (RTP/SRT/WHIP/WHEP/AES67/NDI) are determined by the flows you build inside Strom and are independent of the control port — open those on the firewall as needed for each flow.
 
+### Port pool for a shared Strom
+
+Only relevant when **several** Open Live instances share this Strom. Each of them then reserves a set of SRT listener ports from Strom at startup (`POST /api/ports/reservations`) and registers sources only on ports it holds, so two instances never bind the same UDP port.
+
+The pool is off until you configure ports. Set `STROM_PORTS=47100-47999` (or `[ports] ports` in `.strom.toml`) and open that whole UDP range inbound on the firewall. A Strom serving one Open Live needs none of this — see [PORT_POOL.md](PORT_POOL.md) for the full picture.
+
+Code is the source of truth — this may have drifted; read the code for the current implementation.
+
 ---
 
 ## 7. ICE Servers (STUN / TURN) for WebRTC
@@ -281,6 +292,14 @@ or in `.strom.toml`:
 [server]
 ice_transport_policy = "relay"   # "all" (default) or "relay"
 ```
+
+This is the server-wide setting. The WHIP Input, WHIP Output, WHEP Input and
+WHEP Output blocks each also carry an **ICE Transport Policy** property, which
+defaults to "Server default" and overrides the server setting for that block
+alone — use it when one endpoint needs relay (or must not be forced onto it)
+while the rest of the server keeps the default. Forcing relay requires a TURN
+server in `ice_servers`; with only STUN configured, a relay-only block finds no
+candidates and never connects.
 
 ### Docker Compose Example
 

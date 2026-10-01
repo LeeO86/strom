@@ -25,18 +25,21 @@ pub mod blocks;
 pub mod client_auth;
 pub mod config;
 pub mod discovery;
+pub(crate) mod event_logging;
 pub mod events;
 pub mod gpu;
 pub mod gst;
 pub mod gui;
 pub mod json_rejection;
 pub mod layout;
+pub mod macos_app_nap;
 pub mod mcp;
 pub mod network;
 pub mod nmos;
 pub mod openapi;
 pub mod osc;
 pub mod paths;
+pub mod ports;
 pub mod ptp_monitor;
 pub mod rtsp_server;
 pub mod server_hardening;
@@ -47,6 +50,7 @@ pub mod storage;
 pub mod system_clock;
 pub mod system_monitor;
 pub mod tams;
+pub mod thread_handle;
 pub mod thread_registry;
 pub mod tls;
 pub mod version;
@@ -119,6 +123,25 @@ pub async fn create_app_with_config(
     let protected_api_router = Router::new()
         .route("/flows", get(api::flows::list_flows))
         .route("/flows", post(api::flows::create_flow))
+        .route("/ports", get(api::ports::get_pool))
+        .route("/ports/reservations", get(api::ports::list_reservations))
+        .route("/ports/reservations", post(api::ports::create_reservation))
+        .route(
+            "/ports/reservations/{id}",
+            get(api::ports::get_reservation).delete(api::ports::delete_reservation),
+        )
+        .route(
+            "/ports/reservations/{id}/renew",
+            post(api::ports::renew_reservation),
+        )
+        .route(
+            "/ports/reservations/{id}/assign",
+            post(api::ports::assign_ports),
+        )
+        .route(
+            "/ports/reservations/{id}/assign/{flow_id}",
+            delete(api::ports::unassign_ports),
+        )
         .route("/flows/{id}", get(api::flows::get_flow))
         .route("/flows/{id}", post(api::flows::update_flow))
         .route("/flows/{id}", put(api::flows::update_flow_put))
@@ -456,13 +479,19 @@ pub async fn create_app_with_config(
             get(|| async { serve_embedded_asset::<assets::WhipAssets>("whip.css", "text/css") }),
         );
 
-    // Create MCP session manager
+    // Create MCP session manager. Clients are not required to DELETE their
+    // session and generally do not, so the sweep is what reclaims them.
     let mcp_sessions = mcp::McpSessionManager::new();
+    mcp_sessions.start_cleanup_task();
 
     // Combine routers with auth config and MCP session manager extensions
+    // The API router carries its own fallback so that unmatched /api/* paths get a
+    // JSON 404 instead of inheriting the outer SPA fallback (which would answer 200
+    // with the frontend HTML).
     let api_router = Router::new()
         .merge(public_api_router)
         .merge(protected_api_router)
+        .fallback(api::not_found)
         .layer(Extension(auth_config.clone()))
         .layer(Extension(mcp_sessions));
 
