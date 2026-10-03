@@ -116,8 +116,23 @@ impl DataPaths {
 
     /// Determine the default data directory based on platform and environment.
     fn default_data_dir() -> anyhow::Result<PathBuf> {
-        // One state directory. CONFIG_DIR / STROM_DATA_DIR override this.
-        Ok(PathBuf::from("/config"))
+        // The platform image creates /config and runs as uid 1000.
+        // An unprivileged process (unit tests, a local shell) cannot create
+        // that directory, so state falls back to a directory under the temp dir.
+        let preferred = PathBuf::from("/config");
+        match std::fs::create_dir_all(&preferred) {
+            Ok(()) => Ok(preferred),
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                let fallback = std::env::temp_dir().join("strom-config");
+                std::fs::create_dir_all(&fallback)?;
+                warn!(
+                    "Cannot create /config ({err}); using {} until CONFIG_DIR is set",
+                    fallback.display()
+                );
+                Ok(fallback)
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Default directory for the CEF/Chromium profile used by `cefsrc`.
@@ -211,7 +226,11 @@ mod tests {
     #[test]
     fn test_default_data_dir() {
         let data_dir = DataPaths::default_data_dir().unwrap();
-        assert_eq!(data_dir, PathBuf::from("/config"));
+        assert!(
+            data_dir == PathBuf::from("/config") || data_dir.ends_with("strom-config"),
+            "{}",
+            data_dir.display()
+        );
     }
 
     #[test]

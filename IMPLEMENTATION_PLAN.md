@@ -4,7 +4,7 @@ Audit of this repository against the MXL platform guideline. The code is the sou
 
 | ID | Requirement | Status | Evidence |
 | --- | --- | --- | --- |
-| G1 | Env, then file, then defaults. Invalid values exit 78. State under one directory, default `/config`. Secrets not logged. | met | `backend/src/config.rs` (`apply_platform_env`, `CONFIG_DIR`), `backend/src/main.rs` exit 78, `backend/src/paths.rs` default `/config` |
+| G1 | Env, then file, then defaults. Invalid values exit 78. State under one directory, default `/config` (temp dir only when `/config` cannot be created). Secrets not logged. | met | `backend/src/config.rs` (`apply_platform_env`, `CONFIG_DIR`), `backend/src/main.rs` exit 78, `backend/src/paths.rs` |
 | G2 | Scan `MXL_DOMAIN_SCAN_PATH` (default `/Volumes/mxl`), including mirrors. Own output domain created once. Do not overwrite a different domain id. `history_duration` configurable. | met | `backend/src/nmos/domain.rs` `scan_domain_root`, `ensure_output_domain` |
 | G3 | `NMOS_SEED` derives UUIDv5 ids. `NMOS_LABEL` is the node label and device prefix. `NMOS_TAGS` on node and device. Group hints stay. | met | `backend/src/nmos/settings.rs` `node_id_from_seed`, `backend/src/nmos/node.rs` tags and device label |
 | G4 | Registry address and port. Query address defaults to the registry, query port to registration port + 1. `NMOS_DNS_SD` defaults false and disables browse and advertisement. No Avahi required. | met | `backend/src/nmos/register.rs` `Discovery::start`, `backend/src/config.rs` `query_base_url` |
