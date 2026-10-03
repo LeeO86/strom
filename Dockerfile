@@ -395,7 +395,8 @@ LABEL org.opencontainers.image.source="https://github.com/leeo86/strom" \
 
 # Set environment variables
 ENV RUST_LOG=info
-ENV STROM_PORT=8080
+# No STROM_PORT here: the default is 8080 in the code, and a baked-in value
+# disagrees with PORT or NMOS_PORT set at run time (exit at startup).
 ENV CONFIG_DIR=/config
 ENV STROM_DATA_DIR=/config
 

@@ -2,6 +2,11 @@
 
 All notable changes to the Strom GStreamer Flow Engine project.
 
+## [Unreleased]
+
+### Fixed
+- The container image no longer sets `STROM_PORT=8080`. With it, `PORT` or `NMOS_PORT` set to another port made the process exit (`STROM_PORT=8080 disagrees with PORT=…`). The default is still 8080.
+
 ## [1.0.0] - 2026-10-03
 
 ### Added
