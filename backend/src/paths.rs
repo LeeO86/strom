@@ -116,26 +116,43 @@ impl DataPaths {
 
     /// Determine the default data directory based on platform and environment.
     fn default_data_dir() -> anyhow::Result<PathBuf> {
+        // `/config` is not an absolute path on Windows (`Path::is_absolute`
+        // requires a drive prefix), so a blank data dir produced
+        // `/config\flows.json` and failed the config tests. Use the per-user
+        // directory there, or the temp dir if that cannot be resolved.
+        #[cfg(windows)]
+        {
+            let data_dir = match ProjectDirs::from("com", "eyevinn", "strom") {
+                Some(proj_dirs) => proj_dirs.data_dir().to_path_buf(),
+                None => std::env::temp_dir().join("strom-config"),
+            };
+            std::fs::create_dir_all(&data_dir)?;
+            return Ok(data_dir);
+        }
+
         // The platform image creates /config and runs as uid 1000.
         // An unprivileged process (unit tests, a local shell) cannot create
         // that directory, so state falls back to a directory under the temp dir.
-        let preferred = PathBuf::from("/config");
-        // macOS CI reports a read-only root; Linux CI reports permission denied.
-        if let Err(err) = std::fs::create_dir_all(&preferred) {
-            let fallback = std::env::temp_dir().join("strom-config");
-            std::fs::create_dir_all(&fallback).map_err(|fallback_err| {
-                anyhow::anyhow!(
-                    "cannot create /config ({err}) or {} ({fallback_err})",
+        #[cfg(not(windows))]
+        {
+            let preferred = PathBuf::from("/config");
+            // macOS CI reports a read-only root; Linux CI reports permission denied.
+            if let Err(err) = std::fs::create_dir_all(&preferred) {
+                let fallback = std::env::temp_dir().join("strom-config");
+                std::fs::create_dir_all(&fallback).map_err(|fallback_err| {
+                    anyhow::anyhow!(
+                        "cannot create /config ({err}) or {} ({fallback_err})",
+                        fallback.display()
+                    )
+                })?;
+                warn!(
+                    "Cannot create /config ({err}); using {} until CONFIG_DIR is set",
                     fallback.display()
-                )
-            })?;
-            warn!(
-                "Cannot create /config ({err}); using {} until CONFIG_DIR is set",
-                fallback.display()
-            );
-            return Ok(fallback);
+                );
+                return Ok(fallback);
+            }
+            Ok(preferred)
         }
-        Ok(preferred)
     }
 
     /// Default directory for the CEF/Chromium profile used by `cefsrc`.
@@ -229,6 +246,8 @@ mod tests {
     #[test]
     fn test_default_data_dir() {
         let data_dir = DataPaths::default_data_dir().unwrap();
+        assert!(data_dir.is_absolute(), "{}", data_dir.display());
+        #[cfg(unix)]
         assert!(
             data_dir.as_path() == Path::new("/config") || data_dir.ends_with("strom-config"),
             "{}",
