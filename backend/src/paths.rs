@@ -127,7 +127,7 @@ impl DataPaths {
                 None => std::env::temp_dir().join("strom-config"),
             };
             std::fs::create_dir_all(&data_dir)?;
-            return Ok(data_dir);
+            Ok(data_dir)
         }
 
         // The platform image creates /config and runs as uid 1000.

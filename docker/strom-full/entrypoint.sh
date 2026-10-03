@@ -95,13 +95,15 @@ if [ "${STROM_ENTRYPOINT_HELPERS_ONLY:-}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# Start dbus and avahi-daemon for NDI network discovery
-# NDI uses mDNS (Avahi) to discover streams on the local network.
-rm -f /run/dbus/pid
-mkdir -p /run/dbus
-dbus-daemon --system 2>/dev/null
-rm -f /run/avahi-daemon/pid
-avahi-daemon -D 2>/dev/null
+# NDI discovery uses Avahi. That daemon needs root. The image runs as uid
+# 1000, so skip it unless the container was started as root.
+if [ "$(id -u)" -eq 0 ]; then
+    rm -f /run/dbus/pid
+    mkdir -p /run/dbus
+    dbus-daemon --system 2>/dev/null
+    rm -f /run/avahi-daemon/pid
+    avahi-daemon -D 2>/dev/null
+fi
 
 # Clean up stale X server lock files from previous runs/crashes
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null
