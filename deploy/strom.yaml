@@ -1,0 +1,82 @@
+# Example pod for the MXL platform. Not a Helm chart.
+# The platform mounts one tmpfs at /Volumes/mxl and a writable /config volume.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: strom
+  labels:
+    app: strom
+spec:
+  terminationGracePeriodSeconds: 30
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    supplementalGroups: [1000]
+    fsGroup: 1000
+  containers:
+    - name: strom
+      image: ghcr.io/leeo86/strom:1.0.0
+      args: ["--headless"]
+      ports:
+        - name: http
+          containerPort: 8080
+      env:
+        - name: CONFIG_DIR
+          value: /config
+        - name: PORT
+          value: "8080"
+        - name: NMOS_PORT
+          value: "8080"
+        - name: NMOS_SEED
+          value: sport-sa-strom
+        - name: NMOS_LABEL
+          value: Strom
+        - name: NMOS_TAGS
+          value: '{"urn:x-srf:production":["sport-sa"],"urn:x-srf:function":["strom"]}'
+        - name: NMOS_DNS_SD
+          value: "false"
+        - name: NMOS_REGISTRY_ADDRESS
+          value: 192.0.2.10
+        - name: NMOS_REGISTRY_PORT
+          value: "11000"
+        - name: NMOS_QUERY_ADDRESS
+          value: 192.0.2.10
+        - name: NMOS_QUERY_PORT
+          value: "11001"
+        - name: NMOS_HOST_ADDRESS
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: MXL_DOMAIN_SCAN_PATH
+          value: /Volumes/mxl
+        - name: MXL_OUTPUT_DOMAIN_DIR
+          value: /Volumes/mxl/strom
+        - name: MXL_CLEANUP_ON_EXIT
+          value: "true"
+        - name: SHUTDOWN_TIMEOUT_S
+          value: "10"
+      volumeMounts:
+        - name: mxl
+          mountPath: /Volumes/mxl
+        - name: config
+          mountPath: /config
+      readinessProbe:
+        httpGet:
+          path: /readyz
+          port: http
+        periodSeconds: 5
+      livenessProbe:
+        httpGet:
+          path: /livez
+          port: http
+        periodSeconds: 10
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+  volumes:
+    - name: mxl
+      hostPath:
+        path: /Volumes/mxl
+        type: Directory
+    - name: config
+      emptyDir: {}

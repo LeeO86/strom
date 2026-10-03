@@ -41,7 +41,7 @@ registry = "http://192.0.2.10:3210"
 # label = "Strom"
 ```
 
-Or environment variables: `STROM_NMOS_ENABLED`, `STROM_NMOS_REGISTRY`, `STROM_NMOS_HOST`, `STROM_NMOS_LABEL`, `STROM_NMOS_DOMAINS` (comma-separated).
+Or environment variables. The platform names are `NMOS_SEED`, `NMOS_LABEL`, `NMOS_TAGS`, `NMOS_DNS_SD`, `NMOS_REGISTRY_ADDRESS`, `NMOS_REGISTRY_PORT`, `NMOS_QUERY_ADDRESS`, `NMOS_QUERY_PORT`, `NMOS_HOST_ADDRESS`, `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, and `MXL_OUTPUT_DOMAIN_ID`. Older names still work: `STROM_NMOS_ENABLED`, `STROM_NMOS_REGISTRY` (full URL), `STROM_NMOS_HOST`, `STROM_NMOS_LABEL`, `STROM_NMOS_DOMAINS`. `NMOS_DNS_SD` defaults to false.
 
 `enabled = false` still serves `/x-nmos` but does not advertise or register. The Node API is not behind Strom's API key; that is how NMOS controllers reach it. Do not expose the Strom port on an untrusted network without a firewall.
 

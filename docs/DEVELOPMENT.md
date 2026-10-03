@@ -63,7 +63,7 @@ feature enabled. Windows binaries currently ship without EFP because
 `gst-plugin-efp` has not been validated on that platform yet.
 
 The Docker image enables `mxl` and bakes `libmxl.so` plus `libgstmxl.so`.
-CI pushes linux/amd64 to GHCR as `ghcr.io/<owner>/strom:mxl` (see
+CI pushes linux/amd64 to GHCR as `ghcr.io/<owner>/strom:git-<sha>` and `:nightly-dev` (see
 [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md)).
 
 ## Project Structure

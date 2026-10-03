@@ -296,6 +296,28 @@ pub struct Config {
     pub nmos_label: String,
     /// MXL domain directories that contain `domain_def.json`.
     pub nmos_domains: Vec<PathBuf>,
+    /// `NMOS_SEED`. When set, NMOS ids are UUIDv5 of this value.
+    pub nmos_seed: Option<String>,
+    /// `NMOS_TAGS` JSON object of tag name to string arrays.
+    pub nmos_tags: std::collections::HashMap<String, Vec<String>>,
+    /// `NMOS_DNS_SD`. Default false: no registry browse and no node advertisement.
+    pub nmos_dns_sd: bool,
+    /// `NMOS_QUERY_ADDRESS`. Defaults to the registration address.
+    pub nmos_query_address: Option<String>,
+    /// `NMOS_QUERY_PORT`. Defaults to the registration port plus one.
+    pub nmos_query_port: Option<u16>,
+    /// Parent of MXL domain directories (`MXL_DOMAIN_SCAN_PATH`).
+    pub mxl_scan_path: PathBuf,
+    /// This function's output domain directory (`MXL_OUTPUT_DOMAIN_DIR`).
+    pub mxl_output_domain_dir: Option<PathBuf>,
+    /// `MXL_OUTPUT_DOMAIN_ID`, or the id derived from `NMOS_SEED`.
+    pub mxl_output_domain_id: Option<uuid::Uuid>,
+    /// Nanoseconds written into a new domain `options.json`.
+    pub mxl_history_duration_ns: u64,
+    /// `MXL_CLEANUP_ON_EXIT`.
+    pub mxl_cleanup_on_exit: bool,
+    /// `SHUTDOWN_TIMEOUT_S`.
+    pub shutdown_timeout_s: u64,
     /// Port numbers the pool may hand out. Empty switches the pool off.
     pub pool_ports: std::collections::BTreeSet<u16>,
     /// Lifetime a reservation gets when the caller does not say.
@@ -427,10 +449,7 @@ impl Config {
         // Every key is mapped explicitly. A generic provider that splits the
         // variable name on underscores cannot express a field name that itself
         // contains one, and figment does not parse comma-separated lists.
-        if let Some(port) = strom_types::env::var_opt("STROM_SERVER_PORT") {
-            let port: u16 = port
-                .parse()
-                .map_err(|_| anyhow::anyhow!("STROM_SERVER_PORT is not a valid port: {}", port))?;
+        if let Some(port) = agreed_listen_port()? {
             figment = figment.merge(Serialized::default("server.port", port));
         }
         for (var, key) in SCALAR_ENV_VARS {
@@ -512,6 +531,14 @@ impl Config {
             figment = figment.merge(Serialized::default("nmos.domains", domains));
         }
 
+        // CONFIG_DIR is the state directory. STROM_DATA_DIR is the older name.
+        if let Some(dir) = strom_types::env::var_opt("STROM_DATA_DIR") {
+            figment = figment.merge(Serialized::default("storage.data_dir", PathBuf::from(dir)));
+        }
+        if let Some(dir) = strom_types::env::var_opt("CONFIG_DIR") {
+            figment = figment.merge(Serialized::default("storage.data_dir", PathBuf::from(dir)));
+        }
+
         // 5. Merge CLI arguments (highest priority)
         if let Some(ref cert) = tls_cert {
             figment = figment.merge(Serialized::default("server.tls_cert", cert));
@@ -554,7 +581,7 @@ impl Config {
         };
         let data_paths = DataPaths::resolve(path_config)?;
 
-        Ok(Self {
+        let mut built = Self {
             port: config_file.server.port,
             flows_path: data_paths.flows_path,
             blocks_path: data_paths.blocks_path,
@@ -587,10 +614,127 @@ impl Config {
                 .into_iter()
                 .map(PathBuf::from)
                 .collect(),
+            nmos_seed: None,
+            nmos_tags: std::collections::HashMap::new(),
+            nmos_dns_sd: false,
+            nmos_query_address: None,
+            nmos_query_port: None,
+            mxl_scan_path: PathBuf::from("/Volumes/mxl"),
+            mxl_output_domain_dir: None,
+            mxl_output_domain_id: None,
+            mxl_history_duration_ns: crate::nmos::DEFAULT_HISTORY_DURATION_NS,
+            mxl_cleanup_on_exit: false,
+            shutdown_timeout_s: 10,
             pool_ports: pool_ports(&config_file.ports.ports)?,
             port_lease_ttl_seconds: port_lease_ttl(config_file.ports.lease_ttl_seconds)?,
             probe_before_handout: config_file.ports.probe_before_handout.unwrap_or(true),
-        })
+        };
+        built.apply_platform_env()?;
+        Ok(built)
+    }
+
+    /// Environment variables that name the platform contract. File values and
+    /// `STROM_*` aliases are already on `self`; these override them.
+    fn apply_platform_env(&mut self) -> anyhow::Result<()> {
+        if let Some(seed) = first_env(&["NMOS_SEED"])? {
+            self.nmos_seed = Some(seed);
+        }
+        if let Some(label) = first_env(&["NMOS_LABEL", "STROM_NMOS_LABEL"])? {
+            self.nmos_label = label;
+        }
+        if let Some(raw) = first_env(&["NMOS_TAGS"])? {
+            self.nmos_tags = parse_tags(&raw)?;
+        }
+        if let Some(raw) = first_env(&["NMOS_DNS_SD"])? {
+            self.nmos_dns_sd = parse_bool_env("NMOS_DNS_SD", &raw)?;
+        }
+        if let Some(address) = first_env(&["NMOS_QUERY_ADDRESS"])? {
+            if address.parse::<std::net::Ipv4Addr>().is_err() {
+                anyhow::bail!("NMOS_QUERY_ADDRESS must be an IPv4 address, got {address}");
+            }
+            self.nmos_query_address = Some(address);
+        }
+        if let Some(raw) = first_env(&["NMOS_QUERY_PORT"])? {
+            self.nmos_query_port = Some(
+                raw.parse()
+                    .map_err(|_| anyhow::anyhow!("NMOS_QUERY_PORT is not a valid port: {raw}"))?,
+            );
+        }
+        if let Some(raw) = first_env(&["NMOS_ENABLED", "STROM_NMOS_ENABLED"])? {
+            self.nmos_enabled = parse_bool_env("NMOS_ENABLED", &raw)?;
+        }
+        let registry_address = first_env(&["NMOS_REGISTRY_ADDRESS"])?;
+        let registry_port = first_env(&["NMOS_REGISTRY_PORT"])?;
+        let legacy_registry = first_env(&["STROM_NMOS_REGISTRY"])?;
+        self.nmos_registry = registry_url(
+            registry_address.as_deref(),
+            registry_port.as_deref(),
+            legacy_registry.as_deref(),
+            self.nmos_registry.as_deref(),
+        )?;
+        if let Some(path) = first_env(&["MXL_DOMAIN_SCAN_PATH"])? {
+            self.mxl_scan_path = PathBuf::from(path);
+        }
+        if let Some(path) = first_env(&["MXL_OUTPUT_DOMAIN_DIR"])? {
+            self.mxl_output_domain_dir = Some(PathBuf::from(path));
+        }
+        if let Some(raw) = first_env(&["MXL_OUTPUT_DOMAIN_ID"])? {
+            self.mxl_output_domain_id = Some(
+                uuid::Uuid::parse_str(raw.trim())
+                    .map_err(|_| anyhow::anyhow!("MXL_OUTPUT_DOMAIN_ID is not a UUID: {raw}"))?,
+            );
+        } else if self.mxl_output_domain_id.is_none() {
+            if let Some(seed) = &self.nmos_seed {
+                self.mxl_output_domain_id = Some(crate::nmos::output_domain_id_from_seed(seed));
+            }
+        }
+        if let Some(raw) = first_env(&["MXL_HISTORY_DURATION_NS"])? {
+            self.mxl_history_duration_ns = raw.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "MXL_HISTORY_DURATION_NS is not an integer number of nanoseconds: {raw}"
+                )
+            })?;
+        }
+        if let Some(raw) = first_env(&["MXL_CLEANUP_ON_EXIT"])? {
+            self.mxl_cleanup_on_exit = parse_bool_env("MXL_CLEANUP_ON_EXIT", &raw)?;
+        }
+        if let Some(raw) = first_env(&["SHUTDOWN_TIMEOUT_S"])? {
+            let seconds: u64 = raw
+                .parse()
+                .map_err(|_| anyhow::anyhow!("SHUTDOWN_TIMEOUT_S is not a number: {raw}"))?;
+            if seconds == 0 {
+                anyhow::bail!("SHUTDOWN_TIMEOUT_S must be at least 1");
+            }
+            self.shutdown_timeout_s = seconds;
+        }
+        let host = first_env(&["NMOS_HOST_ADDRESS", "STROM_NMOS_HOST"])?;
+        if let Some(host) = host {
+            self.nmos_host = Some(
+                crate::nmos::require_announce_ipv4(&host).map_err(|err| anyhow::anyhow!(err))?,
+            );
+        } else if self.nmos_enabled {
+            if let Some(existing) = self.nmos_host.clone() {
+                self.nmos_host = Some(
+                    crate::nmos::require_announce_ipv4(&existing)
+                        .map_err(|err| anyhow::anyhow!(err))?,
+                );
+            } else if let Some(found) = crate::nmos::first_routable_ipv4() {
+                self.nmos_host = Some(found);
+            } else {
+                anyhow::bail!(
+                    "NMOS_HOST_ADDRESS is unset and this host has no routable IPv4 address"
+                );
+            }
+        }
+        let extra_domains = first_env(&["STROM_NMOS_DOMAINS"])?;
+        if let Some(raw) = extra_domains {
+            self.nmos_domains = raw
+                .split(',')
+                .map(|entry| PathBuf::from(entry.trim()))
+                .filter(|entry| !entry.as_os_str().is_empty())
+                .collect();
+        }
+        Ok(())
     }
 
     /// NMOS node settings, including the persisted node id next to the flows file.
@@ -611,6 +755,19 @@ impl Config {
             registry: self.nmos_registry.clone(),
             domain_paths: self.nmos_domains.clone(),
             heartbeat_secs: 5,
+            seed: self.nmos_seed.clone(),
+            tags: self.nmos_tags.clone(),
+            dns_sd: self.nmos_dns_sd,
+            scan_path: self.mxl_scan_path.clone(),
+            output_domain_dir: self.mxl_output_domain_dir.clone(),
+            output_domain_id: self.mxl_output_domain_id,
+            history_duration_ns: self.mxl_history_duration_ns,
+            cleanup_on_exit: self.mxl_cleanup_on_exit,
+            query_base: query_base_url(
+                self.nmos_registry.as_deref(),
+                self.nmos_query_address.as_deref(),
+                self.nmos_query_port,
+            ),
         }
     }
 
@@ -646,7 +803,7 @@ impl Config {
         };
         let data_paths = DataPaths::resolve(path_config)?;
 
-        Ok(Self {
+        let mut built = Self {
             port,
             flows_path: data_paths.flows_path,
             blocks_path: data_paths.blocks_path,
@@ -669,10 +826,23 @@ impl Config {
             nmos_host: None,
             nmos_label: "Strom".to_string(),
             nmos_domains: vec![PathBuf::from(strom_types::mxl::DEFAULT_MXL_DOMAIN)],
+            nmos_seed: None,
+            nmos_tags: std::collections::HashMap::new(),
+            nmos_dns_sd: false,
+            nmos_query_address: None,
+            nmos_query_port: None,
+            mxl_scan_path: PathBuf::from("/Volumes/mxl"),
+            mxl_output_domain_dir: None,
+            mxl_output_domain_id: None,
+            mxl_history_duration_ns: crate::nmos::DEFAULT_HISTORY_DURATION_NS,
+            mxl_cleanup_on_exit: false,
+            shutdown_timeout_s: 10,
             pool_ports: std::collections::BTreeSet::new(),
             port_lease_ttl_seconds: strom_types::ports::DEFAULT_PORT_LEASE_TTL_SECS,
             probe_before_handout: true,
-        })
+        };
+        built.apply_platform_env()?;
+        Ok(built)
     }
 
     /// Load configuration from environment variables only (legacy support).
@@ -698,6 +868,123 @@ impl Config {
             media_path,
             database_url,
         )
+    }
+}
+
+fn first_env(names: &[&str]) -> anyhow::Result<Option<String>> {
+    let mut found: Option<(String, String)> = None;
+    for name in names {
+        if let Some(value) = strom_types::env::var_opt(name) {
+            if let Some((previous, previous_value)) = &found {
+                if previous_value != &value {
+                    anyhow::bail!("{name}={value} disagrees with {previous}={previous_value}");
+                }
+            } else {
+                found = Some(((*name).to_string(), value));
+            }
+        }
+    }
+    Ok(found.map(|(_, value)| value))
+}
+
+fn agreed_listen_port() -> anyhow::Result<Option<u16>> {
+    let mut found: Option<(&str, u16)> = None;
+    for name in ["PORT", "NMOS_PORT", "STROM_PORT", "STROM_SERVER_PORT"] {
+        if let Some(raw) = strom_types::env::var_opt(name) {
+            let port: u16 = raw
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{name} is not a valid port: {raw}"))?;
+            if let Some((previous, previous_port)) = found {
+                if previous_port != port {
+                    anyhow::bail!(
+                        "{name}={port} disagrees with {previous}={previous_port}; the web UI and NMOS API share one port"
+                    );
+                }
+            } else {
+                found = Some((name, port));
+            }
+        }
+    }
+    Ok(found.map(|(_, port)| port))
+}
+
+fn parse_bool_env(name: &str, raw: &str) -> anyhow::Result<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => anyhow::bail!("{name} must be true or false, got {raw}"),
+    }
+}
+
+fn parse_tags(raw: &str) -> anyhow::Result<std::collections::HashMap<String, Vec<String>>> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|err| anyhow::anyhow!("NMOS_TAGS is not JSON: {err}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("NMOS_TAGS must be a JSON object"))?;
+    let mut tags = std::collections::HashMap::new();
+    for (key, entry) in object {
+        let values = entry
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("NMOS_TAGS.{key} must be an array of strings"))?;
+        let mut strings = Vec::new();
+        for item in values {
+            let text = item
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("NMOS_TAGS.{key} must contain only strings"))?;
+            strings.push(text.to_string());
+        }
+        tags.insert(key.clone(), strings);
+    }
+    Ok(tags)
+}
+
+fn query_base_url(
+    registry: Option<&str>,
+    query_address: Option<&str>,
+    query_port: Option<u16>,
+) -> Option<String> {
+    let (default_host, default_port) = registry.and_then(split_http_host)?;
+    let host = query_address.unwrap_or(default_host);
+    let port = query_port.unwrap_or(default_port.saturating_add(1));
+    Some(format!("http://{host}:{port}"))
+}
+
+fn split_http_host(url: &str) -> Option<(&str, u16)> {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))?;
+    let (host, port) = rest.split_once(':')?;
+    let port = port.split('/').next()?.parse().ok()?;
+    Some((host, port))
+}
+
+fn registry_url(
+    address: Option<&str>,
+    port: Option<&str>,
+    legacy: Option<&str>,
+    from_file: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    match (address, port) {
+        (Some(address), Some(port)) => {
+            let port: u16 = port
+                .parse()
+                .map_err(|_| anyhow::anyhow!("NMOS_REGISTRY_PORT is not a valid port: {port}"))?;
+            if address.parse::<std::net::Ipv4Addr>().is_err() {
+                anyhow::bail!("NMOS_REGISTRY_ADDRESS must be an IPv4 address, got {address}");
+            }
+            Ok(Some(format!("http://{address}:{port}")))
+        }
+        (Some(_), None) => {
+            anyhow::bail!("NMOS_REGISTRY_ADDRESS is set but NMOS_REGISTRY_PORT is not")
+        }
+        (None, Some(_)) => {
+            anyhow::bail!("NMOS_REGISTRY_PORT is set but NMOS_REGISTRY_ADDRESS is not")
+        }
+        (None, None) => Ok(legacy
+            .map(str::to_string)
+            .or_else(|| from_file.map(str::to_string))
+            .filter(|url| !url.is_empty())),
     }
 }
 
@@ -729,6 +1016,17 @@ impl Default for Config {
                 nmos_host: None,
                 nmos_label: "Strom".to_string(),
                 nmos_domains: vec![PathBuf::from(strom_types::mxl::DEFAULT_MXL_DOMAIN)],
+                nmos_seed: None,
+                nmos_tags: std::collections::HashMap::new(),
+                nmos_dns_sd: false,
+                nmos_query_address: None,
+                nmos_query_port: None,
+                mxl_scan_path: PathBuf::from("/Volumes/mxl"),
+                mxl_output_domain_dir: None,
+                mxl_output_domain_id: None,
+                mxl_history_duration_ns: crate::nmos::DEFAULT_HISTORY_DURATION_NS,
+                mxl_cleanup_on_exit: false,
+                shutdown_timeout_s: 10,
                 pool_ports: std::collections::BTreeSet::new(),
                 port_lease_ttl_seconds: strom_types::ports::DEFAULT_PORT_LEASE_TTL_SECS,
                 probe_before_handout: true,

@@ -116,24 +116,22 @@ impl DataPaths {
 
     /// Determine the default data directory based on platform and environment.
     fn default_data_dir() -> anyhow::Result<PathBuf> {
-        // Check if running in Docker
-        if Self::is_docker() {
-            info!("Docker environment detected, using ./data/ for storage");
-            return Ok(PathBuf::from("./data"));
-        }
-
-        // Use platform-specific user data directory
-        if let Some(proj_dirs) = ProjectDirs::from("com", "eyevinn", "strom") {
-            let data_dir = proj_dirs.data_dir().to_path_buf();
-            info!(
-                "Using platform-specific data directory: {}",
-                data_dir.display()
-            );
-            Ok(data_dir)
-        } else {
-            // Fallback to current directory if ProjectDirs fails
-            warn!("Could not determine user data directory, falling back to ./data/");
-            Ok(PathBuf::from("./data"))
+        // The platform image creates /config and runs as uid 1000.
+        // An unprivileged process (unit tests, a local shell) cannot create
+        // that directory, so state falls back to a directory under the temp dir.
+        let preferred = PathBuf::from("/config");
+        match std::fs::create_dir_all(&preferred) {
+            Ok(()) => Ok(preferred),
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                let fallback = std::env::temp_dir().join("strom-config");
+                std::fs::create_dir_all(&fallback)?;
+                warn!(
+                    "Cannot create /config ({err}); using {} until CONFIG_DIR is set",
+                    fallback.display()
+                );
+                Ok(fallback)
+            }
+            Err(err) => Err(err.into()),
         }
     }
 
@@ -179,23 +177,6 @@ impl DataPaths {
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
         hash
-    }
-
-    /// Detect if running inside a Docker container.
-    fn is_docker() -> bool {
-        // Check for /.dockerenv file (standard Docker indicator)
-        if Path::new("/.dockerenv").exists() {
-            return true;
-        }
-
-        // Check for Docker-specific cgroup entries
-        if let Ok(cgroup) = std::fs::read_to_string("/proc/self/cgroup") {
-            if cgroup.contains("docker") || cgroup.contains("containerd") {
-                return true;
-            }
-        }
-
-        false
     }
 
     /// Log when an individual path overrides the base directory.
@@ -245,14 +226,17 @@ mod tests {
     #[test]
     fn test_default_data_dir() {
         let data_dir = DataPaths::default_data_dir().unwrap();
-        // Should return a valid path
-        assert!(!data_dir.as_os_str().is_empty());
+        assert!(
+            data_dir.as_path() == Path::new("/config") || data_dir.ends_with("strom-config"),
+            "{}",
+            data_dir.display()
+        );
     }
 
     #[test]
     fn test_resolve_with_explicit_paths() {
         let config = PathConfig {
-            data_dir: None,
+            data_dir: Some(PathBuf::from("/tmp/strom-path-test")),
             flows_path: Some(PathBuf::from("/custom/flows.json")),
             blocks_path: Some(PathBuf::from("/custom/blocks.json")),
             media_path: None,

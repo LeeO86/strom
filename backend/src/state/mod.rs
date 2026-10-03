@@ -205,6 +205,14 @@ impl AppState {
         self.inner.nmos.lock().clone()
     }
 
+    /// Ready for the platform: serving, and registered when a registry is set.
+    pub fn nmos_ready(&self) -> bool {
+        match self.nmos() {
+            Some(node) if node.registry_required() => node.is_registered(),
+            _ => true,
+        }
+    }
+
     /// Start mDNS advertisement and registry heartbeats when the node is enabled.
     pub fn start_nmos(&self) {
         if let Some(node) = self.nmos() {
@@ -751,6 +759,18 @@ impl AppState {
     }
 
     /// Get all flows.
+    /// Stop every running flow so MXL writers and readers are released.
+    pub async fn stop_running_flows(&self) {
+        let flows = self.get_flows().await;
+        for flow in flows {
+            if flow.running {
+                if let Err(err) = self.stop_flow(&flow.id).await {
+                    tracing::warn!("Failed to stop flow {} during shutdown: {err}", flow.name);
+                }
+            }
+        }
+    }
+
     pub async fn get_flows(&self) -> Vec<Flow> {
         let flows = self.inner.flows.read().await;
         let pipelines = self.inner.pipelines.read().await;

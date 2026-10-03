@@ -32,11 +32,11 @@ The GPU element unit test is opt-in (`STROM_V210GL_GPU_TEST=1`) because an RGB10
 CI builds linux/amd64 with `--features no-gui,efp,mxl` and bakes `libmxl.so` + `libgstmxl.so`. Pull it instead of building locally. `strom-full` is the same image plus CEF (`gstcefsrc`) and Xvfb — use that when Open Live HTML graphics sources need `cefsrc`.
 
 ```bash
-docker pull ghcr.io/leeo86/strom:mxl
-docker pull ghcr.io/leeo86/strom-full:mxl
+docker pull ghcr.io/leeo86/strom:nightly-dev
+docker pull ghcr.io/leeo86/strom-full:nightly-dev
 # or pin a commit / PR:
-# docker pull ghcr.io/leeo86/strom:mxl-<shortsha>
-# docker pull ghcr.io/leeo86/strom-full:mxl-<shortsha>
+# docker pull ghcr.io/leeo86/strom:git-<shortsha>
+# docker pull ghcr.io/leeo86/strom-full:git-<shortsha>
 # docker pull ghcr.io/leeo86/strom:pr-<n>
 # docker pull ghcr.io/leeo86/strom-full:pr-<n>
 ```
@@ -55,9 +55,9 @@ docker run -d --name strom \
   -e GST_GL_PLATFORM=egl \
   -v /dev/shm/mxl:/dev/shm/mxl \
   -p 8080:8080 \
-  -v "$(pwd)/data:/data" \
-  ghcr.io/leeo86/strom:mxl
-  # or ghcr.io/leeo86/strom-full:mxl when HTML graphics / cefsrc is required
+  -v "$(pwd)/data:/config" \
+  ghcr.io/leeo86/strom:nightly-dev
+  # or ghcr.io/leeo86/strom-full:nightly-dev when HTML graphics / cefsrc is required
 ```
 
 If the host domain is not `/dev/shm/mxl` (for example a separate tmpfs), bind that path onto the container path the blocks use (`domain`, default `/dev/shm/mxl`):
@@ -74,7 +74,7 @@ Put a `domain_def.json` in each domain directory (`id` is a UUID, plus `label`, 
 
 Do not reuse a GStreamer registry from a GPU-less builder. `gst-inspect-1.0 nvcodec` on a GPU host should list encoder/decoder features, not `0 features`. If an older image still ships `/root/.cache/gstreamer-1.0/registry.x86_64.bin`, start with `-e GST_REGISTRY=/tmp/gst-registry.bin` or pull a tag that wipes that cache at the end of the image build.
 
-If `mxlsink` fails with `Failed to load MXL API` and a path under `/tmp/mxl-sdk-build/build/Linux-Clang-Release/`, the plugin is an image built before the runtime-path fix. Pull a newer `ghcr.io/leeo86/strom:mxl` / `ghcr.io/leeo86/strom-full:mxl` tag, or as a one-shot workaround inside the running container:
+If `mxlsink` fails with `Failed to load MXL API` and a path under `/tmp/mxl-sdk-build/build/Linux-Clang-Release/`, the plugin is an image built before the runtime-path fix. Pull a newer `ghcr.io/leeo86/strom:git-<sha>` / `ghcr.io/leeo86/strom-full:git-<sha>` tag, or as a one-shot workaround inside the running container:
 
 ```bash
 mkdir -p /tmp/mxl-sdk-build/build/Linux-Clang-Release/lib

@@ -40,6 +40,23 @@ Run this service in the cloud with a single click.
 
 Browse the full set of built-in blocks and their properties in the app's element palette and inspector.
 
+## Platform (v1.0.0)
+
+Strom's NMOS and MXL settings, ports, and exit codes are a stable contract. See [SPECIFICATION.md](SPECIFICATION.md). A later breaking change is v2.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Clean exit |
+| 75 | HTTP port cannot be bound |
+| 78 | Invalid configuration, or the output domain id does not match `domain_def.json` |
+| 143 | SIGTERM after shutdown |
+
+The process listens on `PORT` (default 8080; aliases `NMOS_PORT`, `STROM_PORT`, `STROM_SERVER_PORT`). Probes are `GET /livez` and `GET /readyz`. Metrics are `GET /metrics`. Config round-trip is `GET /api/v1/config/export` and `POST /api/v1/config/import` (secrets are omitted).
+
+State defaults to `/config` (`CONFIG_DIR`; `STROM_DATA_DIR` is the alias). `NMOS_DNS_SD` defaults to false. `NMOS_HOST_ADDRESS` (alias `STROM_NMOS_HOST`) is the IPv4 literal announced to the registry.
+
+Images: `ghcr.io/leeo86/strom` and `ghcr.io/leeo86/strom-full`, tags `git-<sha7>`, `nightly-dev`, and semver on a `vX.Y.Z` tag. The example pod is [deploy/strom.yaml](deploy/strom.yaml).
+
 ## Quick Start
 
 ### One-liner install (recommended)

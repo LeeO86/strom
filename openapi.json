@@ -10,7 +10,7 @@
     "license": {
       "name": "MIT OR Apache-2.0"
     },
-    "version": "0.6.11"
+    "version": "1.0.0"
   },
   "paths": {
     "/api/auth/status": {
@@ -4695,6 +4695,65 @@
         }
       }
     },
+    "/api/v1/config/export": {
+      "get": {
+        "tags": [
+          "Platform"
+        ],
+        "summary": "Export settings and flows. Secrets are omitted. `include_secrets=true` is accepted and still omits them.",
+        "operationId": "export_config",
+        "parameters": [
+          {
+            "name": "include_secrets",
+            "in": "query",
+            "description": "Accepted for compatibility. Secrets are still omitted.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportedConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/config/import": {
+      "post": {
+        "tags": [
+          "Platform"
+        ],
+        "summary": "Replace stored flows from an export document. Running flows are stopped first.",
+        "operationId": "import_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportedConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Imported"
+          },
+          "400": {
+            "description": "Rejected"
+          }
+        }
+      }
+    },
     "/api/version": {
       "get": {
         "tags": [
@@ -4766,6 +4825,51 @@
           },
           "401": {
             "description": "Authentication required (use auth_token query param)"
+          }
+        }
+      }
+    },
+    "/livez": {
+      "get": {
+        "tags": [
+          "Platform"
+        ],
+        "summary": "Process is alive.",
+        "operationId": "livez",
+        "responses": {
+          "200": {
+            "description": "Alive"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "Platform"
+        ],
+        "summary": "Prometheus text. Metric names use the `strom_` prefix.",
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "description": "Prometheus text"
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "Platform"
+        ],
+        "summary": "Ready to serve. When a registry is configured, the node must be registered.",
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "description": "Ready"
+          },
+          "503": {
+            "description": "Not registered"
           }
         }
       }
@@ -6380,6 +6484,106 @@
           "pipeline": {
             "type": "string",
             "description": "The generated gst-launch-1.0 pipeline string"
+          }
+        }
+      },
+      "ExportedConfig": {
+        "type": "object",
+        "required": [
+          "version",
+          "settings",
+          "flows"
+        ],
+        "properties": {
+          "flows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flow"
+            }
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ExportedSettings"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ExportedSettings": {
+        "type": "object",
+        "required": [
+          "port",
+          "nmos_enabled",
+          "nmos_label",
+          "nmos_dns_sd",
+          "mxl_scan_path",
+          "mxl_history_duration_ns",
+          "mxl_cleanup_on_exit"
+        ],
+        "properties": {
+          "database_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Always omitted. `include_secrets=true` is accepted and still does not\nreturn API keys, TLS private keys, or the database URL."
+          },
+          "mxl_cleanup_on_exit": {
+            "type": "boolean"
+          },
+          "mxl_history_duration_ns": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "mxl_output_domain_dir": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mxl_output_domain_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mxl_scan_path": {
+            "type": "string"
+          },
+          "nmos_dns_sd": {
+            "type": "boolean"
+          },
+          "nmos_enabled": {
+            "type": "boolean"
+          },
+          "nmos_host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nmos_label": {
+            "type": "string"
+          },
+          "nmos_registry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nmos_seed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

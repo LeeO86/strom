@@ -122,6 +122,8 @@ pub async fn create_app_with_config(
     // Build protected API router (requires authentication)
     let protected_api_router = Router::new()
         .route("/flows", get(api::flows::list_flows))
+        .route("/v1/config/export", get(api::platform::export_config))
+        .route("/v1/config/import", post(api::platform::import_config))
         .route("/flows", post(api::flows::create_flow))
         .route("/ports", get(api::ports::get_pool))
         .route("/ports/reservations", get(api::ports::list_reservations))
@@ -508,6 +510,9 @@ pub async fn create_app_with_config(
     // Build main router
     Router::new()
         .route("/health", get(health))
+        .route("/livez", get(api::platform::livez))
+        .route("/readyz", get(api::platform::readyz))
+        .route("/metrics", get(api::platform::metrics))
         .merge(swagger_router)
         .nest("/api", api_router)
         .nest("/player", player_router)
