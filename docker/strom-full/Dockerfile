@@ -18,6 +18,11 @@ ARG BASE_IMAGE=eyevinntechnology/strom
 ARG VERSION=latest
 FROM ${BASE_IMAGE}:${VERSION}
 
+# The GHCR base image ends with USER 1000. apt, the CEF unpack, and the
+# GStreamer registry wipe write to /usr and /root, so this layer is root.
+# The runtime user is restored at the end of the file.
+USER root
+
 # gstcefsrc version (pinned to known-good version)
 ARG GSTCEFSRC_VERSION=144.0.21
 ARG TARGETARCH
@@ -65,6 +70,9 @@ RUN GST_REGISTRY=/tmp/gst-registry-bake.bin gst-inspect-1.0 cefsrc >/dev/null \
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && rm -rf /root/.cache/gstreamer-1.0 /tmp/gst-registry-bake.bin
+
+# Match the base image. Install steps above needed root.
+USER 1000
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/app/strom"]
