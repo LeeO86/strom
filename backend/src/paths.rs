@@ -227,7 +227,7 @@ mod tests {
     fn test_default_data_dir() {
         let data_dir = DataPaths::default_data_dir().unwrap();
         assert!(
-            data_dir == PathBuf::from("/config") || data_dir.ends_with("strom-config"),
+            data_dir.as_path() == Path::new("/config") || data_dir.ends_with("strom-config"),
             "{}",
             data_dir.display()
         );
