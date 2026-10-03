@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   pull_request:
     branches: [main]
     # `labeled` is what lets a maintainer ask for a macOS or Windows build on a
@@ -732,7 +733,8 @@ jobs:
   # clippy/test jobs so a frontend lint failure cannot skip the image.
   docker-ghcr:
     name: Docker (GHCR)
-    if: github.actor != 'dependabot[bot]'
+    # Publish immutable tags from main and version tags. Pull requests do not push.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -771,15 +773,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: MXL revision
+        id: mxl
+        run: |
+          REV=$(git ls-remote https://github.com/dmf-mxl/mxl.git 'refs/tags/v1.1.0^{}' | awk 'NR==1 { print $1 }')
+          if [ -z "$REV" ]; then REV=v1.1.0; fi
+          echo "rev=$REV" >> "$GITHUB_OUTPUT"
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=mxl
-            type=sha,prefix=mxl-,format=short
-            type=ref,event=pr
+            type=sha,prefix=git-,format=short
+            type=raw,value=nightly-dev,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -791,6 +802,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
+          build-args: |
+            GIT_REVISION=${{ github.sha }}
+            MXL_REVISION=${{ steps.mxl.outputs.rev }}
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
           provenance: false
@@ -801,7 +815,7 @@ jobs:
 
       - name: Verify registry wipe and entrypoint exec
         run: |
-          IMAGE="${{ steps.image.outputs.name }}:mxl-${{ steps.sha.outputs.short }}"
+          IMAGE="${{ steps.image.outputs.name }}:git-${{ steps.sha.outputs.short }}"
           docker pull "$IMAGE"
           docker run --rm --entrypoint bash "$IMAGE" -c '
             if ls /root/.cache/gstreamer-1.0/registry*.bin >/dev/null 2>&1; then
@@ -820,8 +834,7 @@ jobs:
             echo "linux/amd64, MXL feature + baked \`libmxl.so\` / \`libgstmxl.so\`."
             echo ""
             echo '```bash'
-            echo "docker pull ${{ steps.image.outputs.name }}:mxl"
-            echo "docker pull ${{ steps.image.outputs.name }}:mxl-${GITHUB_SHA::7}"
+            echo "docker pull ${{ steps.image.outputs.name }}:git-${GITHUB_SHA::7}"
             echo '```'
             echo ""
             echo "The first push creates a private package. Either \`docker login ghcr.io\` with a PAT (read:packages) or set the package public under GitHub → Packages."
@@ -829,7 +842,7 @@ jobs:
 
   # strom-full = MXL-enabled GHCR base + CEF (gstcefsrc) + Xvfb.
   # Required for Open Live `html` graphics sources. Layers on the just-pushed
-  # mxl-<sha> tag so this job never races the moving :mxl tag.
+  # git-<sha> tag of the base image so this job does not race a moving tag.
   docker-ghcr-full:
     name: Docker full (GHCR)
     needs: docker-ghcr
@@ -847,7 +860,7 @@ jobs:
         run: |
           echo "base=${{ needs.docker-ghcr.outputs.image }}" >> "$GITHUB_OUTPUT"
           echo "name=${{ needs.docker-ghcr.outputs.image }}-full" >> "$GITHUB_OUTPUT"
-          echo "tag=mxl-${{ needs.docker-ghcr.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
+          echo "tag=git-${{ needs.docker-ghcr.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -865,9 +878,11 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=raw,value=mxl
-            type=sha,prefix=mxl-,format=short
-            type=ref,event=pr
+            type=sha,prefix=git-,format=short
+            type=raw,value=nightly-dev,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Build and push strom-full
         uses: docker/build-push-action@v7
@@ -913,7 +928,7 @@ jobs:
             echo "linux/amd64, MXL-enabled base + CEF (\`gstcefsrc\`) + Xvfb."
             echo ""
             echo '```bash'
-            echo "docker pull ${{ steps.image.outputs.name }}:mxl"
+            echo "docker pull ${{ steps.image.outputs.name }}:nightly-dev"
             echo "docker pull ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}"
             echo '```'
             echo ""

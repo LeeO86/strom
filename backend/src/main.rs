@@ -4,6 +4,8 @@ use clap::Parser;
 use gstreamer::glib;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, reload, util::SubscriberInitExt, EnvFilter};
@@ -366,8 +368,8 @@ fn main() -> anyhow::Result<()> {
         args.tls_key.clone(),
     )
     .unwrap_or_else(|e| {
-        eprintln!("Failed to load configuration: {}", e);
-        std::process::exit(1);
+        eprintln!("Failed to load configuration: {e}");
+        std::process::exit(78);
     });
 
     // Initialize logging with optional file output, log level, and stdout format
@@ -525,6 +527,8 @@ fn run_with_gui(
 
     // Initialize and start server in runtime
     let (server_started_tx, server_started_rx) = std::sync::mpsc::channel::<u16>();
+    let sigterm = Arc::new(AtomicBool::new(false));
+    let sigterm_for_server = sigterm.clone();
 
     runtime.spawn(async move {
         // Initialize GStreamer INSIDE tokio runtime
@@ -621,6 +625,10 @@ fn run_with_gui(
 
         // GStreamer elements are discovered lazily on first /api/elements request
 
+        if let Err(err) = strom::nmos::prepare_output_domain(&config.nmos_settings()) {
+            eprintln!("MXL output domain: {err}");
+            std::process::exit(78);
+        }
         state.install_nmos(config.nmos_settings());
         state.start_nmos();
 
@@ -635,6 +643,7 @@ fn run_with_gui(
 
         // Start server - bind to 0.0.0.0 to be accessible from all interfaces
         let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+        ensure_port_free(addr);
 
         let tls_config = setup_tls(&config).await;
 
@@ -657,12 +666,19 @@ fn run_with_gui(
         let handle = axum_server::Handle::new();
         let handle_for_signal = handle.clone();
         let state_for_shutdown = state.clone();
+        let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_s);
+        let sigterm_for_task = sigterm_for_server;
         tokio::spawn(async move {
-            wait_for_shutdown_signal().await;
+            let term = wait_for_shutdown_signal().await;
+            sigterm_for_task.store(term, Ordering::SeqCst);
             info!("Signaling GUI to close...");
-            state_for_shutdown.shutdown_nmos().await;
+            let _ = tokio::time::timeout(shutdown_timeout, async {
+                state_for_shutdown.stop_running_flows().await;
+                state_for_shutdown.shutdown_nmos().await;
+            })
+            .await;
             shutdown_flag.store(true, Ordering::SeqCst);
-            handle_for_signal.graceful_shutdown(Some(Duration::from_secs(10)));
+            handle_for_signal.graceful_shutdown(Some(shutdown_timeout));
         });
 
         serve_with_tls(addr, app, handle, tls_config)
@@ -696,6 +712,9 @@ fn run_with_gui(
     // Must run before library destructors; see `shutdown_overlay_timers`.
     strom::blocks::builtin::vision_mixer::overlay::shutdown_overlay_timers();
 
+    if sigterm.load(Ordering::SeqCst) {
+        std::process::exit(143);
+    }
     Ok(())
 }
 
@@ -858,6 +877,10 @@ async fn run_headless(
 
     // GStreamer elements are discovered lazily on first /api/elements request
 
+    if let Err(err) = strom::nmos::prepare_output_domain(&config.nmos_settings()) {
+        eprintln!("MXL output domain: {err}");
+        std::process::exit(78);
+    }
     state.install_nmos(config.nmos_settings());
     state.start_nmos();
 
@@ -872,6 +895,7 @@ async fn run_headless(
 
     // Start server - bind to 0.0.0.0 to be accessible from all interfaces (Docker, network, etc.)
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    ensure_port_free(addr);
 
     let tls_config = setup_tls(&config).await;
 
@@ -891,11 +915,19 @@ async fn run_headless(
     let handle = axum_server::Handle::new();
     let handle_for_signal = handle.clone();
     let state_for_shutdown = state.clone();
+    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_s);
+    let sigterm = Arc::new(AtomicBool::new(false));
+    let sigterm_for_task = sigterm.clone();
     tokio::spawn(async move {
-        wait_for_shutdown_signal().await;
+        let term = wait_for_shutdown_signal().await;
+        sigterm_for_task.store(term, Ordering::SeqCst);
         info!("Server shutting down");
-        state_for_shutdown.shutdown_nmos().await;
-        handle_for_signal.graceful_shutdown(Some(Duration::from_secs(10)));
+        let _ = tokio::time::timeout(shutdown_timeout, async {
+            state_for_shutdown.stop_running_flows().await;
+            state_for_shutdown.shutdown_nmos().await;
+        })
+        .await;
+        handle_for_signal.graceful_shutdown(Some(shutdown_timeout));
     });
 
     let serve_result = serve_with_tls(addr, app, handle, tls_config).await;
@@ -905,6 +937,9 @@ async fn run_headless(
 
     serve_result?;
 
+    if sigterm.load(Ordering::SeqCst) {
+        std::process::exit(143);
+    }
     Ok(())
 }
 
@@ -985,8 +1020,8 @@ async fn serve_with_tls(
     Ok(())
 }
 
-/// Wait for SIGINT or SIGTERM shutdown signal.
-async fn wait_for_shutdown_signal() {
+/// `true` when the signal was SIGTERM. SIGTERM exits 143 after cleanup.
+async fn wait_for_shutdown_signal() -> bool {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -998,9 +1033,11 @@ async fn wait_for_shutdown_signal() {
         tokio::select! {
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, shutting down gracefully...");
+                true
             }
             _ = sigint.recv() => {
                 info!("Received SIGINT (Ctrl+C), shutting down gracefully...");
+                false
             }
         }
     }
@@ -1011,6 +1048,17 @@ async fn wait_for_shutdown_signal() {
             .await
             .expect("Failed to install Ctrl+C handler");
         info!("Received Ctrl+C, shutting down gracefully...");
+        false
+    }
+}
+
+fn ensure_port_free(addr: SocketAddr) {
+    match std::net::TcpListener::bind(addr) {
+        Ok(listener) => drop(listener),
+        Err(err) => {
+            eprintln!("Cannot bind {addr}: {err}");
+            std::process::exit(75);
+        }
     }
 }
 

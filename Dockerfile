@@ -385,10 +385,28 @@ RUN set -euo pipefail \
 # Copy setup scripts for optional host/container configuration (NDI, NVIDIA, etc.)
 COPY scripts/setup /app/scripts/setup
 
+# Image identity. CI passes the git SHA and the MXL tag commit.
+ARG GIT_REVISION=unknown
+ARG MXL_REVISION=v1.1.0
+LABEL org.opencontainers.image.source="https://github.com/leeo86/strom" \
+      org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.licenses="MIT OR Apache-2.0" \
+      io.dmf.mxl.revision="${MXL_REVISION}"
+
 # Set environment variables
 ENV RUST_LOG=info
 ENV STROM_PORT=8080
-ENV STROM_DATA_DIR=/data
+ENV CONFIG_DIR=/config
+ENV STROM_DATA_DIR=/config
+
+# The process runs as uid 1000. NVIDIA device nodes are provided by the
+# container runtime (--gpus); NVENC does not need root inside the image.
+# NDI mDNS (Avahi) is skipped unless the container is started as root.
+RUN groupadd --gid 1000 strom \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin strom \
+    && mkdir -p /config \
+    && chown -R 1000:1000 /config /app
+USER 1000
 
 # Enable all NVIDIA driver capabilities (needed for NVENC/NVDEC video encoding/decoding)
 ENV NVIDIA_DRIVER_CAPABILITIES=all
@@ -407,10 +425,7 @@ RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
     echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
     > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
 
-# Create data directory for persistent storage
-RUN mkdir -p /data
-
-# Copy entrypoint script that starts dbus/avahi for NDI discovery
+# Copy entrypoint script. Avahi starts only when the container is root.
 COPY docker/strom/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

@@ -30,7 +30,7 @@ HTML rendering requires Chromium Embedded Framework (CEF), which adds significan
 docker pull eyevinntechnology/strom-full:latest
 
 # This fork also publishes an MXL-enabled full image to GHCR:
-# docker pull ghcr.io/leeo86/strom-full:mxl
+# docker pull ghcr.io/leeo86/strom-full:1
 
 # Run with host networking (recommended for multicast/AES67)
 docker run --network host eyevinntechnology/strom-full:latest

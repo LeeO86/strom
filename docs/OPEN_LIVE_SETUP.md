@@ -31,7 +31,7 @@ Two multi-arch images are published on Docker Hub:
 - **`eyevinntechnology/strom-full:latest`** — recommended default. Bundles CEF/Chromium so HTML pages can be used as video sources (graphics, lower-thirds, scoreboards, web-based overlays). See [HTML_RENDER.md on GitHub](https://github.com/Eyevinn/strom/blob/main/docs/HTML_RENDER.md).
 - **`eyevinntechnology/strom:latest`** — smaller image without CEF/HTML rendering. Use this if you do not need browser-rendered graphics and want a leaner footprint.
 
-This fork also publishes MXL-enabled images to GHCR. Use **`ghcr.io/leeo86/strom-full:mxl`** when you need both MXL and HTML graphics (`cefsrc`); use **`ghcr.io/leeo86/strom:mxl`** when you do not need CEF. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
+This fork also publishes MXL-enabled images to GHCR. Use **`ghcr.io/leeo86/strom-full:1`** (or `nightly-dev`) when you need both MXL and HTML graphics (`cefsrc`); use **`ghcr.io/leeo86/strom:1`** when you do not need CEF. See [`scripts/setup/mxl/`](../scripts/setup/mxl/README.md).
 
 Minimal run:
 
@@ -201,7 +201,7 @@ Notes:
   `/dev/shm/mxl:/dev/shm/mxl`, or `/path/on/host/domain:/dev/shm/mxl`). Do
   **not** set `ipc: host` — that flag makes `mxlsrc` negotiate caps then emit
   zero buffers, so WHEP never binds and `/whep/<id>` returns 502. Use
-  `ghcr.io/leeo86/strom-full:mxl` when the production needs both MXL and HTML
+  `ghcr.io/leeo86/strom-full:1` when the production needs both MXL and HTML
   graphics.
 - Each MXL domain directory needs a `domain_def.json` (`id`, `label`, `description`, `tags`) so NMOS can name the domain. Point `STROM_NMOS_REGISTRY` at an IS-04 registry (for example nmos-cpp). See [NMOS_MXL.md](NMOS_MXL.md).
 - To terminate TLS in Strom itself, mount your certificates and set `STROM_TLS_CERT` / `STROM_TLS_KEY`. See [README — HTTPS/TLS](https://github.com/Eyevinn/strom#httpstls).

@@ -4,7 +4,7 @@ members = ["types", "backend", "frontend", "gst-plugin-v210gl"]
 default-members = ["backend"]
 
 [workspace.package]
-version = "0.6.11"
+version = "1.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Per Enstedt <per.enstedt@eyevinn.se>"]
