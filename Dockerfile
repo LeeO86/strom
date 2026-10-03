@@ -402,8 +402,11 @@ ENV STROM_DATA_DIR=/config
 # The process runs as uid 1000. NVIDIA device nodes are provided by the
 # container runtime (--gpus); NVENC does not need root inside the image.
 # NDI mDNS (Avahi) is skipped unless the container is started as root.
-RUN groupadd --gid 1000 strom \
-    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin strom \
+# Ubuntu already ships uid/gid 1000. Reuse that account when it exists.
+RUN if ! getent group 1000 >/dev/null; then groupadd --gid 1000 strom; fi \
+    && if ! getent passwd 1000 >/dev/null; then \
+         useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin strom; \
+       fi \
     && mkdir -p /config \
     && chown -R 1000:1000 /config /app
 USER 1000
