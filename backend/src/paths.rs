@@ -120,19 +120,22 @@ impl DataPaths {
         // An unprivileged process (unit tests, a local shell) cannot create
         // that directory, so state falls back to a directory under the temp dir.
         let preferred = PathBuf::from("/config");
-        match std::fs::create_dir_all(&preferred) {
-            Ok(()) => Ok(preferred),
-            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
-                let fallback = std::env::temp_dir().join("strom-config");
-                std::fs::create_dir_all(&fallback)?;
-                warn!(
-                    "Cannot create /config ({err}); using {} until CONFIG_DIR is set",
+        // macOS CI reports a read-only root; Linux CI reports permission denied.
+        if let Err(err) = std::fs::create_dir_all(&preferred) {
+            let fallback = std::env::temp_dir().join("strom-config");
+            std::fs::create_dir_all(&fallback).map_err(|fallback_err| {
+                anyhow::anyhow!(
+                    "cannot create /config ({err}) or {} ({fallback_err})",
                     fallback.display()
-                );
-                Ok(fallback)
-            }
-            Err(err) => Err(err.into()),
+                )
+            })?;
+            warn!(
+                "Cannot create /config ({err}); using {} until CONFIG_DIR is set",
+                fallback.display()
+            );
+            return Ok(fallback);
         }
+        Ok(preferred)
     }
 
     /// Default directory for the CEF/Chromium profile used by `cefsrc`.
