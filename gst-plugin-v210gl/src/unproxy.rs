@@ -135,9 +135,8 @@ impl BaseTransformImpl for V210GlUnproxy {
     }
 
     fn transform_ip(&self, buf: &mut gst::BufferRef) -> Result<gst::FlowSuccess, gst::FlowError> {
-        while let Some(meta) = buf.meta_mut::<gstreamer_video::VideoMeta>() {
-            meta.remove().ok();
-        }
+        let width = self.original_width.load(Ordering::Relaxed).max(0) as u32;
+        caps::drop_video_meta(buf, gstreamer_video::VideoFormat::V210, width);
         Ok(gst::FlowSuccess::Ok)
     }
 

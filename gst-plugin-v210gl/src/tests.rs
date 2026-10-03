@@ -136,3 +136,36 @@ fn gpu_roundtrip_negotiates_when_hardware_gl_present() {
         eprintln!("skipping GPU round-trip: no EOS (likely software GL / missing shader path)");
     }
 }
+
+#[test]
+fn locked_video_meta_is_rewritten_instead_of_spun_on() {
+    use gstreamer_video::{VideoFormat, VideoFrameFlags, VideoMeta};
+    init();
+    let width = 1920u32;
+    let proxy_width = crate::v210::proxy_width(width);
+    let mut pooled = gst::Buffer::with_size(crate::v210::frame_size(width, 2)).unwrap();
+    {
+        let buf = pooled.get_mut().unwrap();
+        let mut meta =
+            VideoMeta::add(buf, VideoFrameFlags::empty(), VideoFormat::V210, width, 2).unwrap();
+        // A buffer pool marks its metas LOCKED; gst_buffer_remove_meta refuses them.
+        unsafe {
+            (*meta.as_mut_ptr()).meta.flags |= gst::ffi::GST_META_FLAG_LOCKED;
+        }
+        crate::caps::drop_video_meta(buf, VideoFormat::Rgb10a2Le, proxy_width);
+    }
+    let meta = pooled
+        .meta::<VideoMeta>()
+        .expect("a locked meta stays on the buffer");
+    assert_eq!(meta.format(), VideoFormat::Rgb10a2Le);
+    assert_eq!(meta.width(), proxy_width);
+    assert_eq!(meta.n_planes(), 1);
+
+    let mut plain = gst::Buffer::with_size(crate::v210::frame_size(width, 2)).unwrap();
+    {
+        let buf = plain.get_mut().unwrap();
+        VideoMeta::add(buf, VideoFrameFlags::empty(), VideoFormat::V210, width, 2).unwrap();
+        crate::caps::drop_video_meta(buf, VideoFormat::Rgb10a2Le, proxy_width);
+    }
+    assert!(plain.meta::<VideoMeta>().is_none());
+}

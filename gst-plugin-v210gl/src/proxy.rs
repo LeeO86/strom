@@ -162,10 +162,9 @@ impl BaseTransformImpl for V210GlProxy {
     }
 
     fn transform_ip(&self, buf: &mut gst::BufferRef) -> Result<gst::FlowSuccess, gst::FlowError> {
-        // Drop VideoMeta so downstream uses RGB10A2 geometry from the caps.
-        while let Some(meta) = buf.meta_mut::<gstreamer_video::VideoMeta>() {
-            meta.remove().ok();
-        }
+        // Downstream must use the RGB10A2 geometry of the new caps.
+        let width = v210::proxy_width(self.original_width.load(Ordering::Relaxed).max(0) as u32);
+        caps::drop_video_meta(buf, gstreamer_video::VideoFormat::Rgb10a2Le, width);
         Ok(gst::FlowSuccess::Ok)
     }
 
