@@ -409,7 +409,6 @@ RUN if ! getent group 1000 >/dev/null; then groupadd --gid 1000 strom; fi \
        fi \
     && mkdir -p /config \
     && chown -R 1000:1000 /config /app
-USER 1000
 
 # Enable all NVIDIA driver capabilities (needed for NVENC/NVDEC video encoding/decoding)
 ENV NVIDIA_DRIVER_CAPABILITIES=all
@@ -437,6 +436,9 @@ RUN chmod +x /entrypoint.sh
 # skips NVENC even when --gpus all and libcuda work. Runtime regenerates the
 # registry on first use with whatever GPU is actually visible.
 RUN rm -rf /root/.cache/gstreamer-1.0 /tmp/gst-registry-bake.bin
+
+# Drop root after the image files are in place. Later RUN steps need /usr and /root.
+USER 1000
 
 # Expose the server port
 EXPOSE 8080

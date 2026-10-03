@@ -6,7 +6,7 @@ The code is the source of truth. This file is the stable contract for settings, 
 
 Precedence is environment, then `.strom.toml`, then defaults. Unknown environment variables are ignored. An invalid value exits **78** and prints the reason.
 
-State Strom writes (flows, the node id file, port reservations, media, the CEF cache) lives under one directory. The default is `/config`. `CONFIG_DIR` sets it. `STROM_DATA_DIR` and `STROM_STORAGE_DATA_DIR` are aliases used only when `CONFIG_DIR` is unset. A command-line data directory wins over all of them. If `/config` cannot be created, the process uses `$TMPDIR/strom-config` and logs that. The published image creates `/config` owned by uid 1000, so the platform default holds.
+State Strom writes (flows, the node id file, port reservations, media, the CEF cache) lives under one directory. The default is `/config` on Unix. `CONFIG_DIR` sets it. `STROM_DATA_DIR` and `STROM_STORAGE_DATA_DIR` are aliases used only when `CONFIG_DIR` is unset. A command-line data directory wins over all of them. If `/config` cannot be created, the process uses `$TMPDIR/strom-config` and logs that. The published image creates `/config` owned by uid 1000, so the platform default holds. On Windows the default is the per-user data directory, because `/config` is not an absolute path there.
 
 Secrets (API keys, TLS private keys, database URLs) are not written to logs and are not included in config export.
 
