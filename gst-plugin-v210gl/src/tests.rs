@@ -93,7 +93,8 @@ fn gpu_roundtrip_negotiates_when_hardware_gl_present() {
     }
 
     let pipeline = match gst::parse::launch(
-        "videotestsrc num-buffers=3 pattern=smpte ! \
+        // More frames than the pools hold, so their buffers come back.
+        "videotestsrc num-buffers=30 pattern=smpte ! \
          video/x-raw,width=1920,height=1080,framerate=25/1 ! \
          videoconvert ! video/x-raw,format=v210,interlace-mode=progressive ! \
          v210glupload ! v210gldownload ! fakesink sync=false",
@@ -121,20 +122,17 @@ fn gpu_roundtrip_negotiates_when_hardware_gl_present() {
             }
             MessageView::Error(e) => {
                 let _ = pipeline.set_state(gst::State::Null);
-                eprintln!(
-                    "skipping GPU round-trip: pipeline error: {} ({:?})",
+                panic!(
+                    "GPU round-trip: pipeline error: {} ({:?})",
                     e.error(),
                     e.debug()
                 );
-                return;
             }
             _ => {}
         }
     }
     let _ = pipeline.set_state(gst::State::Null);
-    if !eos {
-        eprintln!("skipping GPU round-trip: no EOS (likely software GL / missing shader path)");
-    }
+    assert!(eos, "GPU round-trip: no EOS within 10 s");
 }
 
 #[test]
@@ -168,4 +166,41 @@ fn locked_video_meta_is_rewritten_instead_of_spun_on() {
         crate::caps::drop_video_meta(buf, VideoFormat::Rgb10a2Le, proxy_width);
     }
     assert!(plain.meta::<VideoMeta>().is_none());
+}
+
+#[test]
+fn rewritten_pool_meta_is_restored_when_the_buffer_returns() {
+    use gstreamer_video::{VideoBufferPool, VideoFormat, VideoInfo, VideoMeta};
+    init();
+    let width = 1920u32;
+    let info = VideoInfo::builder(VideoFormat::V210, width, 2)
+        .build()
+        .unwrap();
+    let pool = VideoBufferPool::new();
+    let mut config = pool.config();
+    // One buffer, so the second acquire returns the same one.
+    config.set_params(Some(&info.to_caps().unwrap()), info.size() as u32, 1, 1);
+    config.add_option(gstreamer_video::BUFFER_POOL_OPTION_VIDEO_META);
+    pool.set_config(config).unwrap();
+    pool.set_active(true).unwrap();
+
+    let mut buffer = pool.acquire_buffer(None).unwrap();
+    let proxy_width = crate::v210::proxy_width(width);
+    crate::caps::drop_video_meta(
+        buffer.get_mut().unwrap(),
+        VideoFormat::Rgb10a2Le,
+        proxy_width,
+    );
+    assert_eq!(
+        buffer.meta::<VideoMeta>().unwrap().format(),
+        VideoFormat::Rgb10a2Le
+    );
+    drop(buffer);
+
+    let buffer = pool.acquire_buffer(None).unwrap();
+    let meta = buffer.meta::<VideoMeta>().expect("the pooled meta stays");
+    assert_eq!(meta.format(), VideoFormat::V210);
+    assert_eq!(meta.width(), width);
+    drop(buffer);
+    pool.set_active(false).unwrap();
 }
