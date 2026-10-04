@@ -1,8 +1,29 @@
 //! Caps helpers for the v210 ↔ RGB10A2 proxy rewrite.
 
 use gstreamer as gst;
+use gstreamer::glib::translate::IntoGlib;
 
 use crate::v210;
+
+/// Drop the buffer's `GstVideoMeta` so downstream uses the geometry of the
+/// new caps. Buffers from a pool carry LOCKED metas that cannot be removed;
+/// those are rewritten to `format` and `width` instead, because retrying the
+/// removal never ends (the streaming thread spins at 100 % CPU).
+pub fn drop_video_meta(buf: &mut gst::BufferRef, format: gstreamer_video::VideoFormat, width: u32) {
+    while let Some(mut meta) = buf.meta_mut::<gstreamer_video::VideoMeta>() {
+        let raw = meta.as_mut_ptr();
+        if meta.remove().is_ok() {
+            continue;
+        }
+        // SAFETY: the meta was not removed, so it still belongs to `buf`.
+        unsafe {
+            (*raw).format = format.into_glib();
+            (*raw).width = width;
+            (*raw).n_planes = 1;
+        }
+        return;
+    }
+}
 
 pub fn v210_caps() -> gst::Caps {
     gst::Caps::builder("video/x-raw")
