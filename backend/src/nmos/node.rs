@@ -1450,7 +1450,10 @@ fn discover_domains(settings: &NmosSettings) -> Vec<MxlDomain> {
 /// The domain scan runs every second; log only domains that appeared or went away.
 fn log_domain_changes(old: &[MxlDomain], new: &[MxlDomain]) {
     for domain in new {
-        if !old.iter().any(|o| o.id == domain.id && o.path == domain.path) {
+        if !old
+            .iter()
+            .any(|o| o.id == domain.id && o.path == domain.path)
+        {
             tracing::info!(
                 "NMOS MXL domain {} ({}) at {}",
                 domain.id,
