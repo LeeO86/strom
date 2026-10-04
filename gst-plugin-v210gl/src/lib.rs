@@ -11,6 +11,7 @@ mod glfilter;
 mod pack;
 mod properties;
 mod proxy;
+mod restore_meta;
 mod shaders;
 mod unpack;
 mod unproxy;
