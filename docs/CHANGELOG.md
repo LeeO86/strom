@@ -6,6 +6,7 @@ All notable changes to the Strom GStreamer Flow Engine project.
 
 ### Fixed
 - `v210glproxy` and `v210glunproxy` no longer spin forever on buffers from a buffer pool. Pooled buffers carry a LOCKED `GstVideoMeta` that cannot be removed; the elements retried the removal at 100 % CPU, so the GPU backend of the MXL blocks wrote no grains and a flow stop hung for 30 s. Such a meta is now rewritten to the new geometry. The opt-in GPU round-trip test (`STROM_V210GL_GPU_TEST=1`) hung the same way and now passes.
+- The GPU backend of the MXL blocks no longer stops with a flow error about 0.3 s after start. The rewritten meta stayed on the pooled buffer, and the pool handed it out again: `v210glpack` mapped its output with RGB10A2 caps and a V210 meta, the map failed (`info->finfo->format == meta->format`) and `mxlsrc` reported `streaming stopped, reason error (-5)`. The original meta now comes back when the buffer returns to its pool. The GPU round-trip test pushes 30 frames, more than the pools hold, and fails on a pipeline error instead of skipping.
 - The container image no longer sets `STROM_PORT=8080`. With it, `PORT` or `NMOS_PORT` set to another port made the process exit (`STROM_PORT=8080 disagrees with PORT=…`). The default is still 8080.
 
 ## [1.0.0] - 2026-10-03
