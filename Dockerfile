@@ -387,7 +387,8 @@ COPY scripts/setup /app/scripts/setup
 
 # Image identity. CI passes the git SHA and the MXL tag commit.
 ARG GIT_REVISION=unknown
-ARG MXL_REVISION=v1.1.0
+# Commit of the MXL_REF tag v1.1.0.
+ARG MXL_REVISION=8f3f1096e804bfb822eb959cdf2fc23199a7d15d
 LABEL org.opencontainers.image.source="https://github.com/leeo86/strom" \
       org.opencontainers.image.revision="${GIT_REVISION}" \
       org.opencontainers.image.licenses="MIT OR Apache-2.0" \

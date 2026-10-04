@@ -776,8 +776,10 @@ jobs:
       - name: MXL revision
         id: mxl
         run: |
-          REV=$(git ls-remote https://github.com/dmf-mxl/mxl.git 'refs/tags/v1.1.0^{}' | awk 'NR==1 { print $1 }')
-          if [ -z "$REV" ]; then REV=v1.1.0; fi
+          # v1.1.0 is a lightweight tag (no ^{} entry); an annotated one is peeled.
+          REV=$(git ls-remote https://github.com/dmf-mxl/mxl.git 'refs/tags/v1.1.0' 'refs/tags/v1.1.0^{}' \
+            | awk '{ rev = $1 } /\^\{\}$/ { peeled = $1 } END { print (peeled != "" ? peeled : rev) }')
+          if ! echo "$REV" | grep -Eq '^[0-9a-f]{40}$'; then echo "error: no commit for MXL v1.1.0: '$REV'" >&2; exit 1; fi
           echo "rev=$REV" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
