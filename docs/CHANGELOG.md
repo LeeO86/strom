@@ -2,14 +2,7 @@
 
 All notable changes to the Strom GStreamer Flow Engine project.
 
-## [Unreleased]
-
-### Fixed
-- `v210glproxy` and `v210glunproxy` no longer spin forever on buffers from a buffer pool. Pooled buffers carry a LOCKED `GstVideoMeta` that cannot be removed; the elements retried the removal at 100 % CPU, so the GPU backend of the MXL blocks wrote no grains and a flow stop hung for 30 s. Such a meta is now rewritten to the new geometry. The opt-in GPU round-trip test (`STROM_V210GL_GPU_TEST=1`) hung the same way and now passes.
-- The GPU backend of the MXL blocks no longer stops with a flow error about 0.3 s after start. The rewritten meta stayed on the pooled buffer, and the pool handed it out again: `v210glpack` mapped its output with RGB10A2 caps and a V210 meta, the map failed (`info->finfo->format == meta->format`) and `mxlsrc` reported `streaming stopped, reason error (-5)`. The original meta now comes back when the buffer returns to its pool. The GPU round-trip test pushes 30 frames, more than the pools hold, and fails on a pipeline error instead of skipping.
-- The container image no longer sets `STROM_PORT=8080`. With it, `PORT` or `NMOS_PORT` set to another port made the process exit (`STROM_PORT=8080 disagrees with PORT=…`). The default is still 8080.
-
-## [1.0.0] - 2026-10-03
+## [1.0.0] - 2026-10-04
 
 ### Added
 - Platform contract for NMOS and MXL: `NMOS_SEED`, `NMOS_LABEL`, `NMOS_TAGS`, `NMOS_DNS_SD` (default false), `NMOS_REGISTRY_ADDRESS` / `NMOS_REGISTRY_PORT`, `NMOS_QUERY_ADDRESS` / `NMOS_QUERY_PORT`, `NMOS_HOST_ADDRESS`, `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT`, `CONFIG_DIR` (default `/config`), `PORT`, `SHUTDOWN_TIMEOUT_S`
@@ -21,6 +14,13 @@ All notable changes to the Strom GStreamer Flow Engine project.
 - NMOS DNS-SD browse and advertisement are off unless `NMOS_DNS_SD=true`
 - SIGTERM exits 143 after flows stop, the node is deleted, and an optional output-domain cleanup. Invalid configuration exits 78. A listen port that cannot be bound exits 75
 - Container images run as uid 1000. Published tags are `git-<sha7>` and `nightly-dev` on main, and `X.Y.Z` / `X.Y` / `X` on a version tag. The moving `:mxl` tag is no longer pushed
+
+### Fixed
+- `v210glproxy` and `v210glunproxy` no longer spin forever on buffers from a buffer pool. Pooled buffers carry a LOCKED `GstVideoMeta` that cannot be removed; the elements retried the removal at 100 % CPU, so the GPU backend of the MXL blocks wrote no grains and a flow stop hung for 30 s. Such a meta is now rewritten to the new geometry. The opt-in GPU round-trip test (`STROM_V210GL_GPU_TEST=1`) hung the same way and now passes.
+- The GPU backend of the MXL blocks no longer stops with a flow error about 0.3 s after start. The rewritten meta stayed on the pooled buffer, and the pool handed it out again: `v210glpack` mapped its output with RGB10A2 caps and a V210 meta, the map failed (`info->finfo->format == meta->format`) and `mxlsrc` reported `streaming stopped, reason error (-5)`. The original meta now comes back when the buffer returns to its pool. The GPU round-trip test pushes 30 frames, more than the pools hold, and fails on a pipeline error instead of skipping.
+- The image label `io.dmf.mxl.revision` is the MXL commit (`8f3f1096…`) again. MXL v1.1.0 is a lightweight tag, the CI lookup of its peeled commit found nothing and the label fell back to `v1.1.0`; CI now fails when it finds no commit.
+- The NMOS domain scan, which runs every second, no longer logs every domain at INFO each time. Domains that appear or go away are logged once.
+- The container image no longer sets `STROM_PORT=8080`. With it, `PORT` or `NMOS_PORT` set to another port made the process exit (`STROM_PORT=8080 disagrees with PORT=…`). The default is still 8080.
 
 ## [Unreleased]
 
