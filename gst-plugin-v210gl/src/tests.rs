@@ -122,7 +122,11 @@ fn gpu_roundtrip_negotiates_when_hardware_gl_present() {
             }
             MessageView::Error(e) => {
                 let _ = pipeline.set_state(gst::State::Null);
-                panic!("GPU round-trip: pipeline error: {} ({:?})", e.error(), e.debug());
+                panic!(
+                    "GPU round-trip: pipeline error: {} ({:?})",
+                    e.error(),
+                    e.debug()
+                );
             }
             _ => {}
         }
@@ -169,7 +173,9 @@ fn rewritten_pool_meta_is_restored_when_the_buffer_returns() {
     use gstreamer_video::{VideoBufferPool, VideoFormat, VideoInfo, VideoMeta};
     init();
     let width = 1920u32;
-    let info = VideoInfo::builder(VideoFormat::V210, width, 2).build().unwrap();
+    let info = VideoInfo::builder(VideoFormat::V210, width, 2)
+        .build()
+        .unwrap();
     let pool = VideoBufferPool::new();
     let mut config = pool.config();
     // One buffer, so the second acquire returns the same one.
@@ -180,8 +186,15 @@ fn rewritten_pool_meta_is_restored_when_the_buffer_returns() {
 
     let mut buffer = pool.acquire_buffer(None).unwrap();
     let proxy_width = crate::v210::proxy_width(width);
-    crate::caps::drop_video_meta(buffer.get_mut().unwrap(), VideoFormat::Rgb10a2Le, proxy_width);
-    assert_eq!(buffer.meta::<VideoMeta>().unwrap().format(), VideoFormat::Rgb10a2Le);
+    crate::caps::drop_video_meta(
+        buffer.get_mut().unwrap(),
+        VideoFormat::Rgb10a2Le,
+        proxy_width,
+    );
+    assert_eq!(
+        buffer.meta::<VideoMeta>().unwrap().format(),
+        VideoFormat::Rgb10a2Le
+    );
     drop(buffer);
 
     let buffer = pool.acquire_buffer(None).unwrap();
