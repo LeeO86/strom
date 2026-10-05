@@ -150,32 +150,6 @@ path.write_text(pat.sub(new, text, count=1))
 print(f"patched {path}: get_mxl_so_path -> {so_path}")
 PY
 
-# mxlsrc: a reader the writer lapped resumed at the oldest retained grain and then
-# read in lockstep, so one stall (e.g. a slow start) left it a whole ring behind
-# the input for good (about 1 s with a 1 s history, strom#17). Resume at the newest
-# grain instead: a live pipeline wants to be live, and DISCONT still marks the gap.
-python3 - "${WORK_DIR}/rust/gst-mxl-rs/src/mxlsrc/timing.rs" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-text = path.read_text()
-old = """        // The writer lapped us; resume at the oldest reader-visible grain.
-        ReadStep::Read {
-            index: oldest,
-            discont: true,
-        }"""
-new = """        // The writer lapped us; resume live at the newest grain (strom patch).
-        ReadStep::Read {
-            index: head,
-            discont: true,
-        }"""
-if text.count(old) != 1:
-    raise SystemExit(f"error: {path}: lapped-reader branch did not match")
-path.write_text(text.replace(old, new))
-print(f"patched {path}: lapped reader resumes at head")
-PY
-
 echo "==> Building gst-mxl-rs plugin"
 if [[ ! -d "${WORK_DIR}/rust/gst-mxl-rs" ]]; then
   echo "error: rust/gst-mxl-rs missing on ${MXL_REF}" >&2
