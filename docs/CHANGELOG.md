@@ -2,6 +2,15 @@
 
 All notable changes to the Strom GStreamer Flow Engine project.
 
+## [1.0.1] - 2026-10-05
+
+### Fixed
+- `mxlsrc` (built into the image from the MXL SDK) no longer stays a whole ring behind the input after a stall. When the writer lapped it, it resumed at the oldest retained grain and then read in lockstep, so one slow start left the MXL Video Input about 1 s behind for good. A lapped reader now resumes at the newest grain; `DISCONT` still marks the gap. Patched in `scripts/setup/mxl/install-mxl-sdk.sh`; to be reported upstream.
+- `deploy/strom.yaml` no longer passes `--headless`: the image has no GUI, and its entrypoint runs `exec "$@"`, which failed on the flag.
+
+### Added
+- `strom_pipelines_wedged_total`: pipelines whose stop never completed. Their thread and resources stay until the process restarts, which is the only way to reclaim them.
+
 ## [1.0.0] - 2026-10-04
 
 ### Added

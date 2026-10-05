@@ -285,6 +285,7 @@ impl PipelineManager {
             Err(e) => {
                 if matches!(e, DeadlineError::TimedOut) {
                     self.null_state_wedged = true;
+                    super::WEDGED_PIPELINES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     error!(
                         "Pipeline '{}': set_state(NULL) did not complete within {}s — abandoning it, its resources will leak",
                         self.flow_name,
