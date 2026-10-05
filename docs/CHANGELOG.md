@@ -2,6 +2,17 @@
 
 All notable changes to the Strom GStreamer Flow Engine project.
 
+## [1.0.1] - 2026-10-05
+
+### Fixed
+- `deploy/strom.yaml` no longer passes `--headless`: the image has no GUI, and its entrypoint runs `exec "$@"`, which failed on the flag.
+
+### Added
+- `strom_pipelines_wedged_total`: pipelines whose stop never completed. Their thread and resources stay until the process restarts, which is the only way to reclaim them.
+
+### Checked
+- The CPU path is live. #17 saw the MXL output about 1 s behind the input on `nightly-dev` `git-b7e1029`, an older MXL pin. With 1.0.0 (MXL v1.1.0, the same `mxlsrc` as this release) on the lab (NVIDIA A16, mxl-test-player at 1080p50, 1 s history, `backend=cpu` passthrough), the output head is 0–1 grains behind the input head, and both heads grabbed in one pipeline are byte-identical. That holds at start and after the container was paused for 3 s, which laps the reader.
+
 ## [1.0.0] - 2026-10-04
 
 ### Added

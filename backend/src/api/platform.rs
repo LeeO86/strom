@@ -76,12 +76,15 @@ pub async fn metrics(State(state): State<AppState>) -> Response {
         .into_iter()
         .filter(|flow| flow.running)
         .count();
+    let wedged = crate::gst::pipeline::WEDGED_PIPELINES.load(std::sync::atomic::Ordering::Relaxed);
     let body = format!(
         "# HELP strom_up Process is running.\n# TYPE strom_up gauge\nstrom_up 1\n\
          # HELP strom_nmos_registered NMOS node is registered, or no registry is configured.\n\
          # TYPE strom_nmos_registered gauge\nstrom_nmos_registered {registered}\n\
          # HELP strom_flows_running Flows currently running.\n\
-         # TYPE strom_flows_running gauge\nstrom_flows_running {running}\n"
+         # TYPE strom_flows_running gauge\nstrom_flows_running {running}\n\
+         # HELP strom_pipelines_wedged_total Pipelines whose stop never completed; they keep their thread until the process restarts.\n\
+         # TYPE strom_pipelines_wedged_total counter\nstrom_pipelines_wedged_total {wedged}\n"
     );
     (
         [(

@@ -16,6 +16,7 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_net as gst_net;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use strom_types::{BlockDefinition, BlockInstance, FlowId, Link, PipelineState, PropertyValue};
 use thiserror::Error;
@@ -241,6 +242,10 @@ pub struct PipelineManager {
     /// still holds the pipeline's state lock, so `Drop` must not try again.
     null_state_wedged: bool,
 }
+
+/// Pipelines whose `set_state(Null)` never returned since the process started.
+/// Their thread and resources stay allocated until the process restarts.
+pub static WEDGED_PIPELINES: AtomicU64 = AtomicU64::new(0);
 
 impl Drop for PipelineManager {
     fn drop(&mut self) {
