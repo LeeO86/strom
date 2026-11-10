@@ -2,7 +2,8 @@
 //!
 //! Strom is a Node, not a registry. A configured registry URL is tried first.
 //! mDNS `_nmos-registration._tcp` is the fallback, and a failed heartbeat moves
-//! to the next advertised registry.
+//! to the next advertised registry. A heartbeat answered with 404 means the
+//! registry does not know the node, so the node and its resources register again.
 
 use std::net::Ipv4Addr;
 use std::time::Duration;
@@ -129,11 +130,23 @@ async fn register_once(node: &NmosNode, client: &reqwest::Client) {
             Err(err) => warn!("NMOS delete {typ} {id} failed: {err}"),
         }
     }
-    if let Err(err) = heartbeat(client, &base, node.node_id()).await {
-        warn!("NMOS heartbeat failed: {err}");
-        node.set_registered(false);
-        advance_registry(node);
-        return;
+    match heartbeat(client, &base, node.node_id()).await {
+        Ok(()) => {}
+        Err(HeartbeatError::UnknownNode) => {
+            // IS-04: 404 means the registry does not know this node, for
+            // example after it restarted empty. Forget what we registered so
+            // the next pass POSTs the node and all its resources again.
+            warn!("NMOS heartbeat returned HTTP 404, registering again with {base}");
+            node.registered().clear();
+            node.set_registered(false);
+            return;
+        }
+        Err(HeartbeatError::Failed(err)) => {
+            warn!("NMOS heartbeat failed: {err}");
+            node.set_registered(false);
+            advance_registry(node);
+            return;
+        }
     }
     *node.registered() = registered;
     node.set_registered(true);
@@ -218,17 +231,33 @@ async fn delete_resource(
     }
 }
 
-async fn heartbeat(client: &reqwest::Client, base: &str, node_id: Uuid) -> Result<(), String> {
+enum HeartbeatError {
+    /// HTTP 404: the registry does not know this node.
+    UnknownNode,
+    /// Any other failure: connection error or another HTTP status.
+    Failed(String),
+}
+
+async fn heartbeat(
+    client: &reqwest::Client,
+    base: &str,
+    node_id: Uuid,
+) -> Result<(), HeartbeatError> {
     let url = format!("{base}/x-nmos/registration/v1.3/health/nodes/{node_id}");
     let response = client
         .post(&url)
         .send()
         .await
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| HeartbeatError::Failed(err.to_string()))?;
     if response.status().is_success() {
         Ok(())
+    } else if response.status().as_u16() == 404 {
+        Err(HeartbeatError::UnknownNode)
     } else {
-        Err(format!("HTTP {}", response.status()))
+        Err(HeartbeatError::Failed(format!(
+            "HTTP {}",
+            response.status()
+        )))
     }
 }
 
