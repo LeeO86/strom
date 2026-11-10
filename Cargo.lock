@@ -2687,7 +2687,7 @@ dependencies = [
 
 [[package]]
 name = "gst-plugin-v210gl"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "gst-plugin-version-helper",
  "gstreamer",
@@ -6629,7 +6629,7 @@ dependencies = [
 
 [[package]]
 name = "strom"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6710,7 +6710,7 @@ dependencies = [
 
 [[package]]
 name = "strom-frontend"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6746,7 +6746,7 @@ dependencies = [
 
 [[package]]
 name = "strom-types"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "garde",
  "serde",

@@ -2,10 +2,13 @@
 
 All notable changes to the Strom GStreamer Flow Engine project.
 
-## [Unreleased]
+## [1.0.3] - 2026-11-10
 
 ### Fixed
 - NMOS: a broken MXL domain (for example one without `domain_def.json`) is logged once, not on every domain scan (every second and on each NMOS API request). It is logged again only when its problem changes, and once at info level when it is fixed.
+
+### Changed
+- `deploy/strom.yaml` uses the `1.0.3` image.
 
 ## [1.0.2] - 2026-11-10
 
