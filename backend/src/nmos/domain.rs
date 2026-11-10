@@ -1,11 +1,13 @@
 //! MXL domain identity. BCP-007-03 identifies a domain by the UUID in
 //! `domain_def.json`, not by the path it is mounted at.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use serde::Deserialize;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// One MXL domain this process can read or write.
@@ -37,25 +39,67 @@ struct DomainDef {
     description: String,
 }
 
+/// The last problem logged per domain path. The domains are scanned every
+/// second, so a broken domain is logged once, and again only when its problem changes.
+static REPORTED_PROBLEMS: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+
+/// What to log for one domain path after a scan.
+#[derive(Debug, PartialEq)]
+enum ProblemLog {
+    Nothing,
+    NotUsable,
+    UsableAgain,
+}
+
+/// Remember `problem` for `path` and say what to log: a new or changed problem
+/// is logged, the same problem again is not, and a fixed one is logged once.
+fn note_problem(
+    reported: &mut HashMap<PathBuf, String>,
+    path: &Path,
+    problem: Option<&str>,
+) -> ProblemLog {
+    match problem {
+        Some(problem) => {
+            if reported.get(path).map(String::as_str) == Some(problem) {
+                return ProblemLog::Nothing;
+            }
+            reported.insert(path.to_path_buf(), problem.to_string());
+            ProblemLog::NotUsable
+        }
+        None if reported.remove(path).is_some() => ProblemLog::UsableAgain,
+        None => ProblemLog::Nothing,
+    }
+}
+
 /// Read `domain_def.json` from each configured directory.
 pub fn scan_domains(paths: &[PathBuf]) -> Vec<MxlDomain> {
+    let mut reported = REPORTED_PROBLEMS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut found = Vec::new();
     for path in paths {
-        match read_domain(path) {
-            Ok(Some(domain)) => {
-                tracing::debug!(
-                    "NMOS MXL domain {} ({}) at {}",
-                    domain.id,
-                    domain.name(),
-                    domain.path.display()
-                );
-                found.push(domain);
-            }
-            Ok(None) => {}
-            Err(err) => warn!(
-                "MXL domain {} is not usable for NMOS: {err}",
-                path.display()
+        let result = read_domain(path);
+        let problem = result.as_ref().err().map(String::as_str);
+        match note_problem(&mut reported, path, problem) {
+            ProblemLog::Nothing => {}
+            ProblemLog::NotUsable => warn!(
+                "MXL domain {} is not usable for NMOS: {}",
+                path.display(),
+                problem.unwrap_or_default()
             ),
+            ProblemLog::UsableAgain => {
+                info!("MXL domain {} is no longer broken for NMOS", path.display())
+            }
+        }
+        if let Ok(Some(domain)) = result {
+            tracing::debug!(
+                "NMOS MXL domain {} ({}) at {}",
+                domain.id,
+                domain.name(),
+                domain.path.display()
+            );
+            found.push(domain);
         }
     }
     found.sort_by_key(|domain| domain.id);
@@ -193,6 +237,34 @@ fn is_mxl_root(dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_broken_domain_is_logged_once_per_problem() {
+        let mut reported = HashMap::new();
+        let path = Path::new("/mxl/test-all-cbcgen");
+        let missing = Some("domain_def.json is missing");
+        assert_eq!(
+            note_problem(&mut reported, path, missing),
+            ProblemLog::NotUsable
+        );
+        assert_eq!(
+            note_problem(&mut reported, path, missing),
+            ProblemLog::Nothing
+        );
+        assert_eq!(
+            note_problem(&mut reported, path, Some("id: invalid")),
+            ProblemLog::NotUsable
+        );
+        assert_eq!(
+            note_problem(&mut reported, path, None),
+            ProblemLog::UsableAgain
+        );
+        assert_eq!(note_problem(&mut reported, path, None), ProblemLog::Nothing);
+        assert_eq!(
+            note_problem(&mut reported, path, missing),
+            ProblemLog::NotUsable
+        );
+    }
 
     #[test]
     fn scan_includes_mirror_directories() {
