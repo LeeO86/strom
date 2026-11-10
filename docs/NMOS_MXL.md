@@ -47,6 +47,8 @@ Or environment variables. The platform names are `NMOS_SEED`, `NMOS_LABEL`, `NMO
 
 Docker usually blocks mDNS. Set `registry` explicitly. `--network host` is what makes mDNS discovery of the registry work.
 
+If the registry answers a heartbeat with 404, for example after it restarted empty, Strom registers the node and all its resources again. Other heartbeat failures move to the next registry when more than one is known (configured or found by mDNS).
+
 ## Activation
 
 An immediate IS-05 activation with `master_enable: true` writes the domain path and flow id onto the block and starts that Strom flow. `master_enable: false` stops the flow so the MXL writer or reader is destroyed. Changing the connection restarts the whole flow, including anything else in it.

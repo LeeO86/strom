@@ -681,4 +681,113 @@ mod tests {
         assert!(deleted.load(Ordering::SeqCst));
         assert!(!output.exists());
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn heartbeat_404_registers_the_node_and_resources_again() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        // Fake registry: knows the node after a node POST, answers the
+        // heartbeat with 404 while it does not know the node.
+        let known = Arc::new(AtomicBool::new(false));
+        let posted: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let (known_post, posted_post) = (known.clone(), posted.clone());
+        let known_beat = known.clone();
+        let registry = Router::new()
+            .route(
+                "/x-nmos/registration/v1.3/resource",
+                post(move |body: String| {
+                    let (known, posted) = (known_post.clone(), posted_post.clone());
+                    async move {
+                        let body: Value = serde_json::from_str(&body).unwrap_or_default();
+                        let typ = body["type"].as_str().unwrap_or("?").to_string();
+                        if typ == "node" {
+                            known.store(true, Ordering::SeqCst);
+                        }
+                        posted.lock().unwrap().push(typ);
+                        StatusCode::CREATED
+                    }
+                }),
+            )
+            .route(
+                "/x-nmos/registration/v1.3/resource/{typ}/{id}",
+                delete(|| async { StatusCode::NO_CONTENT }),
+            )
+            .route(
+                "/x-nmos/registration/v1.3/health/nodes/{id}",
+                post(move || {
+                    let known = known_beat.clone();
+                    async move {
+                        if known.load(Ordering::SeqCst) {
+                            StatusCode::OK
+                        } else {
+                            StatusCode::NOT_FOUND
+                        }
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, registry).await.unwrap();
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("domain_def.json"),
+            r#"{"id":"3310f209-9351-47c0-b9a2-14c59b6a4c23","label":"Red","description":"","tags":{}}"#,
+        )
+        .unwrap();
+        let mut settings = NmosSettings::disabled();
+        settings.enabled = true;
+        settings.dns_sd = false;
+        settings.heartbeat_secs = 1;
+        settings.registry = Some(format!("http://127.0.0.1:{port}"));
+        settings.node_id = Some(Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap());
+        settings.domain_paths = vec![dir.path().to_path_buf()];
+        settings.scan_path = dir.path().to_path_buf();
+        settings.host = Some("192.0.2.10".to_string());
+        let flow = video_flow();
+        let snapshot: SnapshotFn = Arc::new(move || {
+            let flow = flow.clone();
+            Box::pin(async move { vec![flow] })
+        });
+        let apply: ApplyFn = Arc::new(|_| Box::pin(async { Ok(()) }));
+        let node = NmosNode::new(settings, snapshot, apply);
+
+        let all = ["node", "device", "source", "flow", "sender", "receiver"];
+        let wait_for_all = |posted: Arc<Mutex<Vec<String>>>, node: NmosNode| async move {
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    let done = {
+                        let posted = posted.lock().unwrap();
+                        all.iter().all(|typ| posted.iter().any(|p| p == typ))
+                    };
+                    if done && node.is_registered() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            })
+            .await
+            .is_ok()
+        };
+
+        start(node.clone());
+        assert!(
+            wait_for_all(posted.clone(), node.clone()).await,
+            "first registration did not complete: {:?}",
+            posted.lock().unwrap()
+        );
+
+        // Registry restarts and comes back empty.
+        posted.lock().unwrap().clear();
+        known.store(false, Ordering::SeqCst);
+
+        assert!(
+            wait_for_all(posted.clone(), node.clone()).await,
+            "node did not register again after heartbeat 404: {:?}",
+            posted.lock().unwrap()
+        );
+        assert_eq!(posted.lock().unwrap()[0], "node");
+        shutdown(&node).await;
+    }
 }

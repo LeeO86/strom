@@ -2,6 +2,11 @@
 
 All notable changes to the Strom GStreamer Flow Engine project.
 
+## [Unreleased]
+
+### Fixed
+- NMOS: when the registry answers a heartbeat with HTTP 404, Strom now registers the node and all its devices, sources, flows, senders and receivers again, then goes on with heartbeats (IS-04). Before, a registry that restarted empty got only failing heartbeats until Strom itself was restarted, and `/readyz` stayed 503.
+
 ## [1.0.1] - 2026-10-05
 
 ### Fixed
